@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: filter.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: filter.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict'
+
+// ******************************** 离屏渲染 - 开始 ********************************
+
+const OffscreenStart = new class {
+  /** 开始渲染离屏画面 */
+  render() {
+    const gl = GL
+    // 启用离屏纹理并擦除画布
+    gl.enableOffscreen(true)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+  }
+}
+
+// ******************************** 离屏渲染 - 结束 ********************************
+
+const OffscreenEnd = new class {
+  /** 结束渲染离屏画面 */
+  render() {
+    const gl = GL
+    // 禁用离屏纹理并复制纹理像素到画布中
+    gl.enableOffscreen(false)
+    gl.blend = 'copy'
+    // 如果用blitFramebuffer在抗锯齿模式下会报错
+    const program = gl.imageProgram.use()
+    const vertices = gl.arrays[0].float32
+    vertices[0] = -1
+    vertices[1] = 1
+    vertices[2] = 0
+    vertices[3] = 0
+    vertices[4] = -1
+    vertices[5] = -1
+    vertices[6] = 0
+    vertices[7] = 1
+    vertices[8] = 1
+    vertices[9] = -1
+    vertices[10] = 1
+    vertices[11] = 1
+    vertices[12] = 1
+    vertices[13] = 1
+    vertices[14] = 1
+    vertices[15] = 0
+    gl.bindVertexArray(program.vao.a110)
+    gl.vertexAttrib1f(program.a_Opacity, 1)
+    gl.uniformMatrix3fv(program.u_Matrix, false, gl.matrix.reset())
+    gl.uniform1i(program.u_LightMode, 0)
+    gl.uniform1i(program.u_ColorMode, 0)
+    gl.uniform4f(program.u_Tint, 0, 0, 0, 0)
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STREAM_DRAW, 0, 16)
+    gl.bindTexture(gl.TEXTURE_2D, gl.offscreen.current.base.glTexture)
+    gl.drawArrays(gl.TRIANGLE_FAN, 0, 4)
+  }
+}
+
+// ******************************** 染色器对象 ********************************
+
+const Tinter = new class {
+  // 色调数组
+  tint = [0, 0, 0, 0]
+
+  /** 更新场景色调 */
+  update() {
+    const {tint} = this
+    if (tint[0] === 0 &amp;&amp;
+      tint[1] === 0 &amp;&amp;
+      tint[2] === 0 &amp;&amp;
+      tint[3] === 0) {
+      Scene.filters.delete('tint')
+    } else {
+      Scene.filters.set('tint', this)
+    }
+  }
+
+  /** 重置色调 */
+  reset() {
+    if (this.transition) {
+      this.transition.remove()
+      delete this.transition
+    }
+    this.tint[0] = 0
+    this.tint[1] = 0
+    this.tint[2] = 0
+    this.tint[3] = 0
+    Scene.filters.delete('tint')
+  }
+
+  /** 渲染场景色调 */
+  render() {
+    const gl = GL
+    // 切换离屏纹理
+    gl.switchOffscreen()
+    gl.blend = 'copy'
+    // 复制染色后的画面到当前的离屏纹理
+    gl.drawImage(gl.offscreen.last, 0, 0, gl.width, gl.height, this.tint)
+  }
+
+  /**
+   * 设置场景色调: 红[-255, 255] 绿[-255, 255] 蓝[-255, 255] 灰[0, 255]
+   * @param {Array&lt;number>} tint 色调数组
+   * @param {string} easingId 过渡曲线ID
+   * @param {number} duration 持续时间(毫秒)
+   */
+  set(tint, easingId, duration) {
+    // 如果上一次的色调过渡未结束，移除
+    if (this.transition) {
+      this.transition.remove()
+      delete this.transition
+    }
+    if (duration > 0) {
+      // 设置场景滤镜模块：色调渲染器
+      Scene.filters.set('tint', this)
+      const start = Array.from(this.tint)
+      const end = tint
+      const easing = Easing.get(easingId)
+      // 创建色调过渡计时器
+      this.transition = new Timer({
+        duration: duration,
+        update: timer => {
+          const tint = this.tint
+          const time = easing.map(timer.elapsed / duration)
+          tint[0] = Math.clamp(start[0] * (1 - time) + end[0] * time, -255, 255)
+          tint[1] = Math.clamp(start[1] * (1 - time) + end[1] * time, -255, 255)
+          tint[2] = Math.clamp(start[2] * (1 - time) + end[2] * time, -255, 255)
+          tint[3] = Math.clamp(start[3] * (1 - time) + end[3] * time, 0, 255)
+        },
+        callback: () => {
+          delete this.transition
+          // 检查是否需要删除渲染器
+          this.update()
+        },
+      }).add()
+    } else {
+      // 直接设置色调
+      this.tint[0] = tint[0]
+      this.tint[1] = tint[1]
+      this.tint[2] = tint[2]
+      this.tint[3] = tint[3]
+      this.update()
+    }
+  }
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Actor.html">Actor</a></li><li><a href="ActorCollider.html">ActorCollider</a></li><li><a href="ActorNavigator.html">ActorNavigator</a></li><li><a href="Animation.html">Animation</a></li><li><a href="AnimationController.html">AnimationController</a></li><li><a href="AudioPlayer.html">AudioPlayer</a></li><li><a href="AudioReverb.html">AudioReverb</a></li><li><a href="BatchRenderer.html">BatchRenderer</a></li><li><a href="CooldownItem.html">CooldownItem</a></li><li><a href="CooldownManager.html">CooldownManager</a></li><li><a href="DialogBoxElement.html">DialogBoxElement</a></li><li><a href="EasingMap.html">EasingMap</a></li><li><a href="Equipment.html">Equipment</a></li><li><a href="EquipmentManager.html">EquipmentManager</a></li><li><a href="EventHandler.html">EventHandler</a></li><li><a href="ImageElement.html">ImageElement</a></li><li><a href="ImageTexture.html">ImageTexture</a></li><li><a href="Inventory.html">Inventory</a></li><li><a href="Item.html">Item</a></li><li><a href="Matrix.html">Matrix</a></li><li><a href="MultipleAudioPlayer.html">MultipleAudioPlayer</a></li><li><a href="ParticleElement.html">ParticleElement</a></li><li><a href="ParticleEmitter.html">ParticleEmitter</a></li><li><a href="ParticleLayer.html">ParticleLayer</a></li><li><a href="Printer.html">Printer</a></li><li><a href="ProgressBarElement.html">ProgressBarElement</a></li><li><a href="SceneActorList.html">SceneActorList</a></li><li><a href="SceneAnimation.html">SceneAnimation</a></li><li><a href="SceneAnimationList.html">SceneAnimationList</a></li><li><a href="SceneContext.html">SceneContext</a></li><li><a href="SceneGridCellList.html">SceneGridCellList</a></li><li><a href="SceneLight.html">SceneLight</a></li><li><a href="SceneLightManager.html">SceneLightManager</a></li><li><a href="SceneObstacleArray.html">SceneObstacleArray</a></li><li><a href="SceneParallax.html">SceneParallax</a></li><li><a href="SceneParallaxManager.html">SceneParallaxManager</a></li><li><a href="SceneParticleEmitter.html">SceneParticleEmitter</a></li><li><a href="SceneParticleEmitterList.html">SceneParticleEmitterList</a></li><li><a href="SceneRegion.html">SceneRegion</a></li><li><a href="SceneRegionList.html">SceneRegionList</a></li><li><a href="SceneSpriteRenderer.html">SceneSpriteRenderer</a></li><li><a href="SceneTerrainArray.html">SceneTerrainArray</a></li><li><a href="SceneTilemap.html">SceneTilemap</a></li><li><a href="SceneTriggerList.html">SceneTriggerList</a></li><li><a href="Script.html">Script</a></li><li><a href="Shortcut.html">Shortcut</a></li><li><a href="Skill.html">Skill</a></li><li><a href="SkillCooldownList.html">SkillCooldownList</a></li><li><a href="SkillManager.html">SkillManager</a></li><li><a href="State.html">State</a></li><li><a href="StateCountdownList.html">StateCountdownList</a></li><li><a href="StateManager.html">StateManager</a></li><li><a href="TargetManager.html">TargetManager</a></li><li><a href="TextBoxElement.html">TextBoxElement</a></li><li><a href="TextElement.html">TextElement</a></li><li><a href="Texture.html">Texture</a></li><li><a href="TextureManager.html">TextureManager</a></li><li><a href="Timer.html">Timer</a></li><li><a href="Trigger.html">Trigger</a></li><li><a href="UIElement.html">UIElement</a></li><li><a href="VideoElement.html">VideoElement</a></li><li><a href="WindowElement.html">WindowElement</a></li></ul><h3>Global</h3><ul><li><a href="global.html#GL">GL</a></li><li><a href="global.html#_createElement">_createElement</a></li><li><a href="global.html#_updateBubbleState">_updateBubbleState</a></li><li><a href="global.html#activate">activate</a></li><li><a href="global.html#add">add</a></li><li><a href="global.html#addMember">addMember</a></li><li><a href="global.html#addPointerEventRoot">addPointerEventRoot</a></li><li><a href="global.html#append">append</a></li><li><a href="global.html#autorun">autorun</a></li><li><a href="global.html#bind">bind</a></li><li><a href="global.html#buildPath">buildPath</a></li><li><a href="global.html#calculateCoords">calculateCoords</a></li><li><a href="global.html#calculateSceneCoords">calculateSceneCoords</a></li><li><a href="global.html#call">call</a></li><li><a href="global.html#callAutorunEvents">callAutorunEvents</a></li><li><a href="global.html#callSpecialEvent">callSpecialEvent</a></li><li><a href="global.html#changeRelation">changeRelation</a></li><li><a href="global.html#checkIfRemovedHover">checkIfRemovedHover</a></li><li><a href="global.html#clearGlobalActors">clearGlobalActors</a></li><li><a href="global.html#compileEvents">compileEvents</a></li><li><a href="global.html#continue">continue</a></li><li><a href="global.html#convertToScreenCoords">convertToScreenCoords</a></li><li><a href="global.html#create">create</a></li><li><a href="global.html#createAutotileMap">createAutotileMap</a></li><li><a href="global.html#createEasingMap">createEasingMap</a></li><li><a href="global.html#createElement">createElement</a></li><li><a href="global.html#createFollower">createFollower</a></li><li><a href="global.html#createMembers">createMembers</a></li><li><a href="global.html#createPath">createPath</a></li><li><a href="global.html#createPlayer">createPlayer</a></li><li><a href="global.html#createUnitPath">createUnitPath</a></li><li><a href="global.html#decodeClone">decodeClone</a></li><li><a href="global.html#decodeTeamData">decodeTeamData</a></li><li><a href="global.html#decodeTerrains">decodeTerrains</a></li><li><a href="global.html#decodeTiles">decodeTiles</a></li><li><a href="global.html#delete">delete</a></li><li><a href="global.html#deleteGameData">deleteGameData</a></li><li><a href="global.html#disable">disable</a></li><li><a href="global.html#displayErrorMessage">displayErrorMessage</a></li><li><a href="global.html#doubleclick">doubleclick</a></li><li><a href="global.html#emit">emit</a></li><li><a href="global.html#emitInputEvent">emitInputEvent</a></li><li><a href="global.html#enable">enable</a></li><li><a href="global.html#encodeTeamData">encodeTeamData</a></li><li><a href="global.html#encodeTerrains">encodeTerrains</a></li><li><a href="global.html#executeCallbacks">executeCallbacks</a></li><li><a href="global.html#find">find</a></li><li><a href="global.html#follow">follow</a></li><li><a href="global.html#gamepadbuttonpress">gamepadbuttonpress</a></li><li><a href="global.html#gamepadbuttonrelease">gamepadbuttonrelease</a></li><li><a href="global.html#gamepadleftstickchange">gamepadleftstickchange</a></li><li><a href="global.html#gamepadrightstickchange">gamepadrightstickchange</a></li><li><a href="global.html#generate32bit">generate32bit</a></li><li><a href="global.html#generate64bit">generate64bit</a></li><li><a href="global.html#get">get</a></li><li><a href="global.html#getElementAtMouse">getElementAtMouse</a></li><li><a href="global.html#getGroup">getGroup</a></li><li><a href="global.html#getItem">getItem</a></li><li><a href="global.html#getKey">getKey</a></li><li><a href="global.html#getKeys">getKeys</a></li><li><a href="global.html#getName">getName</a></li><li><a href="global.html#getParallaxAnchor">getParallaxAnchor</a></li><li><a href="global.html#getPathByGUID">getPathByGUID</a></li><li><a href="global.html#getPointerEventRoot">getPointerEventRoot</a></li><li><a href="global.html#getRelationByIndexes">getRelationByIndexes</a></li><li><a href="global.html#getValue">getValue</a></li><li><a href="global.html#initialize">initialize</a></li><li><a href="global.html#isEnemy">isEnemy</a></li><li><a href="global.html#isFriendly">isFriendly</a></li><li><a href="global.html#isMacOS">isMacOS</a></li><li><a href="global.html#keydown">keydown</a></li><li><a href="global.html#keydownFilter">keydownFilter</a></li><li><a href="global.html#keyup">keyup</a></li><li><a href="global.html#load">load</a></li><li><a href="global.html#loadData">loadData</a></li><li><a href="global.html#loadFile">loadFile</a></li><li><a href="global.html#loadGameData">loadGameData</a></li><li><a href="global.html#loadGlobalData">loadGlobalData</a></li><li><a href="global.html#loadMeta">loadMeta</a></li><li><a href="global.html#loadObjects">loadObjects</a></li><li><a href="global.html#loadPresets">loadPresets</a></li><li><a href="global.html#loadSaveMeta">loadSaveMeta</a></li><li><a href="global.html#loadScene">loadScene</a></li><li><a href="global.html#loadScripts">loadScripts</a></li><li><a href="global.html#loadUI">loadUI</a></li><li><a href="global.html#mousedown">mousedown</a></li><li><a href="global.html#mousedownLB">mousedownLB</a></li><li><a href="global.html#mousedownRB">mousedownRB</a></li><li><a href="global.html#mouseleave">mouseleave</a></li><li><a href="global.html#mousemove">mousemove</a></li><li><a href="global.html#mouseup">mouseup</a></li><li><a href="global.html#mouseupLB">mouseupLB</a></li><li><a href="global.html#mouseupRB">mouseupRB</a></li><li><a href="global.html#moveTo">moveTo</a></li><li><a href="global.html#off">off</a></li><li><a href="global.html#on">on</a></li><li><a href="global.html#onTransitionEnd">onTransitionEnd</a></li><li><a href="global.html#open">open</a></li><li><a href="global.html#parseCSSColor">parseCSSColor</a></li><li><a href="global.html#parseDateTimestamp">parseDateTimestamp</a></li><li><a href="global.html#parseFloatArray">parseFloatArray</a></li><li><a href="global.html#parseFloatArrayTag">parseFloatArrayTag</a></li><li><a href="global.html#parseGUID">parseGUID</a></li><li><a href="global.html#parseInt">parseInt</a></li><li><a href="global.html#parseIntArray">parseIntArray</a></li><li><a href="global.html#pause">pause</a></li><li><a href="global.html#pointerdown">pointerdown</a></li><li><a href="global.html#pointerenter">pointerenter</a></li><li><a href="global.html#pointerleave">pointerleave</a></li><li><a href="global.html#pointermove">pointermove</a></li><li><a href="global.html#pointerup">pointerup</a></li><li><a href="global.html#pop">pop</a></li><li><a href="global.html#precompile">precompile</a></li><li><a href="global.html#precompileActors">precompileActors</a></li><li><a href="global.html#precompileAnimations">precompileAnimations</a></li><li><a href="global.html#precompileEquipments">precompileEquipments</a></li><li><a href="global.html#precompileItems">precompileItems</a></li><li><a href="global.html#precompileSkills">precompileSkills</a></li><li><a href="global.html#precompileStates">precompileStates</a></li><li><a href="global.html#precompileTriggers">precompileTriggers</a></li><li><a href="global.html#preventInput">preventInput</a></li><li><a href="global.html#push">push</a></li><li><a href="global.html#remapScripts">remapScripts</a></li><li><a href="global.html#remove">remove</a></li><li><a href="global.html#removeItem">removeItem</a></li><li><a href="global.html#removeLatestPointerEventRoot">removeLatestPointerEventRoot</a></li><li><a href="global.html#removeMember">removeMember</a></li><li><a href="global.html#removePointerEventRoot">removePointerEventRoot</a></li><li><a href="global.html#render">render</a></li><li><a href="global.html#renderLoadingProgress">renderLoadingProgress</a></li><li><a href="global.html#reset">reset</a></li><li><a href="global.html#resetPointerEventRoots">resetPointerEventRoots</a></li><li><a href="global.html#resize">resize</a></li><li><a href="global.html#restoreInput">restoreInput</a></li><li><a href="global.html#rotateAndScaleCanvas">rotateAndScaleCanvas</a></li><li><a href="global.html#route">route</a></li><li><a href="global.html#saveData">saveData</a></li><li><a href="global.html#saveGameData">saveGameData</a></li><li><a href="global.html#saveGlobalData">saveGlobalData</a></li><li><a href="global.html#scaleCanvas">scaleCanvas</a></li><li><a href="global.html#set">set</a></li><li><a href="global.html#setBypass">setBypass</a></li><li><a href="global.html#setItem">setItem</a></li><li><a href="global.html#setPlayer">setPlayer</a></li><li><a href="global.html#setTimeScale">setTimeScale</a></li><li><a href="global.html#setToHighestPriority">setToHighestPriority</a></li><li><a href="global.html#setZoomFactor">setZoomFactor</a></li><li><a href="global.html#shake">shake</a></li><li><a href="global.html#shareInventory">shareInventory</a></li><li><a href="global.html#simulateKey">simulateKey</a></li><li><a href="global.html#start">start</a></li><li><a href="global.html#stop">stop</a></li><li><a href="global.html#switchGameInfoDisplay">switchGameInfoDisplay</a></li><li><a href="global.html#testConditions">testConditions</a></li><li><a href="global.html#unfollow">unfollow</a></li><li><a href="global.html#unpack">unpack</a></li><li><a href="global.html#unpackTeamData">unpackTeamData</a></li><li><a href="global.html#update">update</a></li><li><a href="global.html#updateLoadingProgress">updateLoadingProgress</a></li><li><a href="global.html#wheel">wheel</a></li><li><a href="global.html#xhr">xhr</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.2</a> on Mon Aug 21 2023 21:54:29 GMT+0800 (中国标准时间)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
