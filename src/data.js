@@ -407,7 +407,9 @@ const Data = new class {
     if (!meta) {
       // 找不到场景文件的情况
       return new Promise((resolve, reject) => {
-        reject(new URIError(`Scene #${id} is missing.`))
+        const error = new URIError(`Scene #${id} is missing.`)
+        reject(error)
+        throw error
       })
     }
     // 加载场景JSON然后解码
@@ -505,9 +507,9 @@ const Data = new class {
     }
     switch (shell) {
       case 'electron': {
-        const saveDir = File.route('Save')
-        const metaPath = File.route(`Save/save${suffix}.meta`)
-        const dataPath = File.route(`Save/save${suffix}.save`)
+        const saveDir = File.route('$/Save')
+        const metaPath = File.route(`$/Save/save${suffix}.meta`)
+        const dataPath = File.route(`$/Save/save${suffix}.save`)
         const metaText = JSON.stringify(meta, null, 2)
         const dataText = JSON.stringify(data, null, 2)
         const fsp = require('fs').promises
@@ -549,7 +551,7 @@ const Data = new class {
         await void 0
         try {
           // 同步读取存档数据文件
-          const path = File.route(`Save/save${suffix}.save`)
+          const path = File.route(`$/Save/save${suffix}.save`)
           const json = require('fs').readFileSync(path)
           data = JSON.parse(json)
         } catch (error) {
@@ -590,7 +592,7 @@ const Data = new class {
     }
     switch (shell) {
       case 'electron': {
-        const saveDir = File.route('Save')
+        const saveDir = File.route('$/Save')
         const fsp = require('fs').promises
         // 如果不存在存档文件夹，获取空文件列表
         const files = await fsp.readdir(
@@ -604,10 +606,11 @@ const Data = new class {
         }
         // 加载所有meta文件
         for (const filename of filenames) {
-          promises.push(File.get({
-            path: `Save/${filename}`,
-            type: 'json',
-          }))
+          const filepath = File.route(`$/Save/${filename}`)
+          promises.push(
+            fsp.readFile(filepath, 'utf8').then(
+              string => JSON.parse(string)
+          ))
         }
         break
       }
@@ -654,8 +657,8 @@ const Data = new class {
     }
     switch (shell) {
       case 'electron': {
-        const metaPath = File.route(`Save/save${suffix}.meta`)
-        const dataPath = File.route(`Save/save${suffix}.save`)
+        const metaPath = File.route(`$/Save/save${suffix}.meta`)
+        const dataPath = File.route(`$/Save/save${suffix}.save`)
         const fsp = require('fs').promises
         return Promise.all([
           // 异步删除元数据和存档数据
@@ -689,8 +692,8 @@ const Data = new class {
     }
     switch (shell) {
       case 'electron': {
-        const saveDir = File.route('Save')
-        const path = File.route('Save/global.save')
+        const saveDir = File.route('$/Save')
+        const path = File.route('$/Save/global.save')
         const json = JSON.stringify(data, null, 2)
         const fs = require('fs')
         // 如果不存在存档文件夹，创建它
@@ -722,7 +725,7 @@ const Data = new class {
     switch (shell) {
       case 'electron':
         try {
-          const path = File.route('Save/global.save')
+          const path = File.route('$/Save/global.save')
           const fsp = require('fs').promises
           const json = await fsp.readFile(path)
           this.globalData = JSON.parse(json)

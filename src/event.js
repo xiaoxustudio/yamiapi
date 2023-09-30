@@ -776,7 +776,7 @@ class Script {
           break
         }
         case 'keycode':
-          if (value >= 0 && value < 256) {} else {
+          if (typeof value !== 'string') {
             value = defParameter.value
           }
           break
@@ -793,6 +793,41 @@ class Script {
         case 'actor-getter':
           if (value?.getter === 'actor') {
             value = Command.compileActor(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'skill-getter':
+          if (value?.getter === 'skill') {
+            value = Command.compileSkill(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'state-getter':
+          if (value?.getter === 'state') {
+            value = Command.compileState(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'equipment-getter':
+          if (value?.getter === 'equipment') {
+            value = Command.compileEquipment(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'item-getter':
+          if (value?.getter === 'item') {
+            value = Command.compileItem(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'element-getter':
+          if (value?.getter === 'element') {
+            value = Command.compileElement(value)
           } else {
             value = () => undefined
           }

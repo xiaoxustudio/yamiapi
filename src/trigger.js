@@ -3,6 +3,14 @@
 // ******************************** 触发器类 ********************************
 
 class Trigger {
+  /** 触发器文件ID
+   *  @type {string}
+   */ id
+
+  /** 触发器文件数据
+   *  @type {Object}
+   */ data
+
   /** 触发器水平位置
    *  @type {number}
    */ x
@@ -10,6 +18,14 @@ class Trigger {
   /** 触发器垂直位置
    *  @type {number}
    */ y
+
+  /** 触发器上一次水平位置
+   *  @type {number}
+   */ lastX
+
+  /** 触发器上一次垂直位置
+   *  @type {number}
+   */ lastY
 
   /** 触发器缩放系数
    *  @type {number}
@@ -132,8 +148,12 @@ class Trigger {
    * @param {TriggerFile} data 触发器文件数据
    */
   constructor(data) {
+    this.id = data.id
+    this.data = data
     this.x = 0
     this.y = 0
+    this.lastX = 0
+    this.lastY = 0
     this.scale = 1
     this.angle = 0
     this.speed = data.speed
@@ -224,6 +244,9 @@ class Trigger {
       // 否则移除
       this.remove()
     }
+    // 更新上一次的位置
+    this.lastX = this.x
+    this.lastY = this.y
   }
 
   /**
@@ -234,6 +257,8 @@ class Trigger {
   setPosition(x, y) {
     this.x = x
     this.y = y
+    this.lastX = x
+    this.lastY = y
   }
 
   /**
@@ -565,14 +590,15 @@ class Trigger {
                 }
                 case 'square': {
                   // 投影 - 1
-                  const al = -actor.collider.half
-                  const ar = +actor.collider.half
-                  const at = -actor.collider.half
-                  const ab = +actor.collider.half
-                  if (actor.x + al >= tr || actor.x + ar <= tl || actor.y + at >= tb || actor.y + ab <= tt) {
+                  const ah = actor.collider.half
+                  if (actor.x - ah >= tr || actor.x + ah <= tl || actor.y - ah >= tb || actor.y + ah <= tt) {
                     continue
                   }
                   // 投影 - 2
+                  const al = actor.x - x - ah
+                  const at = actor.y - y - ah
+                  const ar = actor.x - x + ah
+                  const ab = actor.y - y + ah
                   const x1 = al * cos + at * sin
                   const y1 = at * cos - al * sin
                   const x2 = al * cos + ab * sin
@@ -811,7 +837,7 @@ class Trigger {
      * @returns {boolean} 是否发生了碰撞
      */
     'destroy' = function () {
-      return Scene.isInWallBlock(this.x, this.y)
+      return !this.parent.scene.isInLineOfSight(this.lastX, this.lastY, this.x, this.y)
     }
   }
 

@@ -1,0 +1,31 @@
+{
+    "plugins": [
+        "plugins/markdown"
+    ],
+    "sourceType": "module",
+    "tags": {
+        "allowUnknownTags": true,
+        "dictionaries": [
+            "jsdoc",
+            "closure"
+        ]
+    },
+    "templates": {
+        "cleverLinks": true,
+        "monospaceLinks": false
+    },
+    "opts": {
+        "template": "./node_modules/minami",
+        "encoding": "utf8",
+        "destination": "./out/",
+        "recurse": true
+    },
+    "source": {
+        "include": [
+            "src"
+        ],
+        "exclude": [],
+        "includePattern": ".+\\.js(doc|x)?$",
+        "excludePattern": "(^|\\/|\\\\)_"
+    }
+}

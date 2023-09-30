@@ -1895,30 +1895,30 @@ class ParticleElement {
     this.fadeout = fadeout
     this.fadeoutTime = this.lifetime - fadeout
     this.globalAngle = emitter.angle
-    this.scaleFactor = Math.randomBetween(...scale.factor) * emitter.scale
-    this.scaleSpeed = Math.randomBetween(...scale.speed) / 1e3 * emitter.scale
-    this.scaleAccel = Math.randomBetween(...scale.accel) / 1e6 * emitter.scale
-    this.anchorX = Math.randomBetween(...anchor.x)
-    this.anchorY = Math.randomBetween(...anchor.y)
-    this.anchorSpeedX = Math.randomBetween(...anchor.speedX) / 1e3
-    this.anchorSpeedY = Math.randomBetween(...anchor.speedY) / 1e3
-    this.rotationAngle = Math.radians(Math.randomBetween(...rotation.angle)) + emitter.angle
-    this.rotationSpeed = Math.radians(Math.randomBetween(...rotation.speed)) / 1e3
-    this.rotationAccel = Math.radians(Math.randomBetween(...rotation.accel)) / 1e6
+    this.scaleFactor = ParticleElement.getRandomParameter(scale.factor) * emitter.scale
+    this.scaleSpeed = ParticleElement.getRandomParameter(scale.speed) / 1e3 * emitter.scale
+    this.scaleAccel = ParticleElement.getRandomParameter(scale.accel) / 1e6 * emitter.scale
+    this.anchorX = ParticleElement.getRandomParameter(anchor.x)
+    this.anchorY = ParticleElement.getRandomParameter(anchor.y)
+    this.anchorSpeedX = ParticleElement.getRandomParameter(anchor.speedX) / 1e3
+    this.anchorSpeedY = ParticleElement.getRandomParameter(anchor.speedY) / 1e3
+    this.rotationAngle = Math.radians(ParticleElement.getRandomParameter(rotation.angle)) + emitter.angle
+    this.rotationSpeed = Math.radians(ParticleElement.getRandomParameter(rotation.speed)) / 1e3
+    this.rotationAccel = Math.radians(ParticleElement.getRandomParameter(rotation.accel)) / 1e6
     this.hRotationOffsetX = 0
     this.hRotationOffsetY = 0
-    this.hRotationRadius = Math.randomBetween(...hRotation.radius) * emitter.scale
-    this.hRotationExpansionSpeed = Math.randomBetween(...hRotation.expansionSpeed) * emitter.scale / 1e3
-    this.hRotationExpansionAccel = Math.randomBetween(...hRotation.expansionAccel) * emitter.scale / 1e6
-    this.hRotationAngle = Math.radians(Math.randomBetween(...hRotation.angle))
-    this.hRotationAngularSpeed = Math.radians(Math.randomBetween(...hRotation.angularSpeed)) / 1e3
-    this.hRotationAngularAccel = Math.radians(Math.randomBetween(...hRotation.angularAccel)) / 1e6
-    const movementAngle = Math.radians(Math.randomBetween(...movement.angle)) + emitter.angle
-    const movementSpeed = Math.randomBetween(...movement.speed) * emitter.scale / 1e3
+    this.hRotationRadius = ParticleElement.getRandomParameter(hRotation.radius) * emitter.scale
+    this.hRotationExpansionSpeed = ParticleElement.getRandomParameter(hRotation.expansionSpeed) * emitter.scale / 1e3
+    this.hRotationExpansionAccel = ParticleElement.getRandomParameter(hRotation.expansionAccel) * emitter.scale / 1e6
+    this.hRotationAngle = Math.radians(ParticleElement.getRandomParameter(hRotation.angle))
+    this.hRotationAngularSpeed = Math.radians(ParticleElement.getRandomParameter(hRotation.angularSpeed)) / 1e3
+    this.hRotationAngularAccel = Math.radians(ParticleElement.getRandomParameter(hRotation.angularAccel)) / 1e6
+    const movementAngle = Math.radians(ParticleElement.getRandomParameter(movement.angle)) + emitter.angle
+    const movementSpeed = ParticleElement.getRandomParameter(movement.speed) * emitter.scale / 1e3
     this.movementSpeedX = movementSpeed * Math.cos(movementAngle)
     this.movementSpeedY = movementSpeed * Math.sin(movementAngle)
-    const movementAccelAngle = Math.radians(Math.randomBetween(...movement.accelAngle)) + emitter.angle
-    const movementAccel = Math.randomBetween(...movement.accel) * emitter.scale / 1e6
+    const movementAccelAngle = Math.radians(ParticleElement.getRandomParameter(movement.accelAngle)) + emitter.angle
+    const movementAccel = ParticleElement.getRandomParameter(movement.accel) * emitter.scale / 1e6
     this.movementAccelX = movementAccel * Math.cos(movementAccelAngle)
     this.movementAccelY = movementAccel * Math.sin(movementAccelAngle)
     const frame = Math.floor(Math.random() * hframes * vframes)
@@ -2363,6 +2363,11 @@ class ParticleElement {
   static count = 0
   static sharedFloat64Array = new Float64Array(4)
   static sharedClampedArray = new Uint8ClampedArray(4)
+
+  // 生成随机参数
+  static getRandomParameter([standard, deviation]) {
+    return standard + deviation * (Math.random() * 2 - 1)
+  }
 }
 
 // ******************************** 粒子发射器列表类 ********************************

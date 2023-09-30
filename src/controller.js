@@ -108,6 +108,7 @@ const Input = new class {
     // 侦听事件
     window.on('keydown', this.keydown)
     window.on('keyup', this.keyup)
+    window.on('blur', this.blur)
   }
 
   /** 更新输入状态 */
@@ -197,6 +198,11 @@ const Input = new class {
   keydown(event) {
     Input.keydownFilter(event)
 
+    // 当文本输入框获得焦点时，返回
+    if (document.activeElement instanceof HTMLInputElement) {
+      return
+    }
+
     // 触发游戏事件
     const {keys} = Input
     const {code} = event
@@ -240,12 +246,41 @@ const Input = new class {
   }
 
   /**
-   * 模拟按键
+   * 失去焦点事件
+   * @param {FocusEvent} event 焦点事件
+   */
+  blur(event) {
+    // 弹起所有按下的键盘按键
+    for (const [keycode, state] of Object.entries(Input.keys)) {
+      if (state === 1) {
+        Input.simulateKey('keyup', keycode)
+      }
+    }
+    // 弹起所有按下的鼠标按键
+    for (let i = 0; i < Input.buttons.length; i++) {
+      if (Input.buttons[i] === 1) {
+        Input.simulateButton('pointerup', i)
+      }
+    }
+  }
+
+  /**
+   * 模拟键盘按键
    * @param {string} keycode 
    */
   simulateKey(type, keycode) {
     const event = Input.event
     window.dispatchEvent(new KeyboardEvent(type, {code: keycode}))
+    Input.event = event
+  }
+
+  /**
+   * 模拟鼠标按键
+   * @param {number} button 
+   */
+  simulateButton(type, button) {
+    const event = Input.event
+    window.dispatchEvent(new PointerEvent(type, {button: button}))
     Input.event = event
   }
 }

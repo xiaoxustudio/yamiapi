@@ -11,7 +11,7 @@ const Party = new class {
    *  @type {Array<Actor>}
    */ members = []
 
-  /** 玩家队伍共享包裹ID
+  /** 玩家队伍共享库存ID
    *  @type {string}
    */ inventoryId = ''
 
@@ -102,7 +102,7 @@ const Party = new class {
     }
   }
 
-  /** 共享玩家角色包裹 */
+  /** 共享玩家角色库存 */
   shareInventory() {
     if (Data.config.actor.partyInventory === 'shared') {
       if (this.player instanceof GlobalActor) {
@@ -608,7 +608,7 @@ class Actor {
    *  @type {TargetManager}
    */ targetManager
 
-  /** 角色包裹管理器
+  /** 角色库存管理器
    *  @type {Inventory}
    */ inventory
 
@@ -1074,8 +1074,8 @@ class Actor {
   }
 
   /**
-   * 使用指定全局角色的包裹
-   * @param {Inventory} inventory 全局角色的包裹
+   * 使用指定全局角色的库存
+   * @param {Inventory} inventory 全局角色的库存
    */
   useInventory(inventory) {
     if (this.inventory !== inventory) {
@@ -1087,7 +1087,7 @@ class Actor {
   }
 
   /**
-   * 恢复角色的包裹引用
+   * 恢复角色的库存引用
    */
   restoreInventory() {
     if (this.savedInventory) {
@@ -2421,7 +2421,7 @@ class EquipmentManager {
       equipment.slot = ''
       equipment.emit('equipmentremove')
       equipment.parent = null
-      // 在角色包裹中插入移除的装备
+      // 在角色库存中插入移除的装备
       this.actor.inventory.insert(equipment)
     }
   }
@@ -2486,8 +2486,8 @@ class Equipment {
    *  @type {string}
    */ slot
 
-  /** 装备在包裹中的位置
-   *  如果不在包裹中为-1
+  /** 装备在库存中的位置
+   *  如果不在库存中为-1
    *  @type {number}
    */ order
 
@@ -2553,7 +2553,7 @@ class Equipment {
   }
 
   /**
-   * 穿上角色装备(共享包裹的代价：需要传递事件触发角色)
+   * 穿上角色装备(共享库存的代价：需要传递事件触发角色)
    * @param {string} slot 装备槽
    * @param {Actor} [actor] 事件触发角色
    */
@@ -2617,8 +2617,8 @@ class Item {
    *  @type {string}
    */ id
 
-  /** 物品在包裹中的位置
-   *  如果不在包裹中为-1
+  /** 物品在库存中的位置
+   *  如果不在库存中为-1
    *  @type {number}
    */ order
 
@@ -2704,7 +2704,7 @@ class Item {
   }
 
   /**
-   * 减少物品的数量，当物品数量不够时将被从包裹中移除
+   * 减少物品的数量，当物品数量不够时将被从库存中移除
    * @param {number} quantity 物品数量
    */
   decrease(quantity) {
@@ -2720,13 +2720,13 @@ class Item {
     }
   }
 
-  /** 将货物从包裹中移除 */
+  /** 将货物从库存中移除 */
   remove() {
     this.parent?.remove(this)
   }
 
   /**
-   * 调用物品事件(共享包裹的代价：需要传递事件触发角色)
+   * 调用物品事件(共享库存的代价：需要传递事件触发角色)
    * @param {string} type 物品事件类型
    * @param {Actor} [actor] 事件触发角色
    * @returns {EventHandler|undefined}
@@ -2767,14 +2767,14 @@ class Item {
   static latest
 }
 
-// ******************************** 包裹类 ********************************
+// ******************************** 库存类 ********************************
 
 class Inventory {
   /** 绑定的角色对象
    *  @type {Actor}
    */ actor
 
-  /** 包裹中的金钱
+  /** 库存中的金钱
    *  @type {number}
    */ money
 
@@ -2782,11 +2782,11 @@ class Inventory {
    *  @type {number}
    */ pointer
 
-  /** 包裹中的货物数量
+  /** 库存中的货物数量
    *  @type {number}
    */ size
 
-  /** 包裹货物列表
+  /** 库存货物列表
    *  @type {Array<Item|Equipment>}
    */ list
 
@@ -2794,12 +2794,12 @@ class Inventory {
    *  @type {Object}
    */ idMap
 
-  /** 包裹管理器版本(随着货物添加和移除发生变化)
+  /** 库存管理器版本(随着货物添加和移除发生变化)
    *  @type {number}
    */ version
 
   /**
-   * 角色包裹管理器
+   * 角色库存管理器
    * @param {Actor} actor 绑定的角色对象
    */
   constructor(actor) {
@@ -2813,7 +2813,7 @@ class Inventory {
   }
 
   /**
-   * 获取包裹货物
+   * 获取库存货物
    * @param {string} id 物品文件ID
    * @returns {Item|Equipment|undefined}
    */
@@ -2822,7 +2822,7 @@ class Inventory {
   }
 
   /**
-   * 获取包裹货物列表
+   * 获取库存货物列表
    * @param {string} id 物品文件ID
    * @returns {Array<Item>|Array<Equipment>|undefined}
    */
@@ -2830,14 +2830,14 @@ class Inventory {
     return this.idMap[id]
   }
 
-  /** 重置包裹中的物品、装备、金币 */
+  /** 重置库存中的物品、装备、金币 */
   reset() {
-    // 遍历包裹中的所有物品装备，重置属性
+    // 遍历库存中的所有物品装备，重置属性
     for (const goods of this.list) {
       goods.parent = null
       goods.order = -1
     }
-    // 重置包裹属性
+    // 重置库存属性
     this.money = 0
     this.pointer = 0
     this.size = 0
@@ -2847,7 +2847,7 @@ class Inventory {
   }
 
   /**
-   * 插入物品或装备到包裹中的空位置
+   * 插入物品或装备到库存中的空位置
    * @param {Item|Equipment} goods 插入对象
    */
   insert(goods) {
@@ -2869,7 +2869,7 @@ class Inventory {
   }
 
   /**
-   * 从包裹中移除物品或装备
+   * 从库存中移除物品或装备
    * @param {Item|Equipment} goods 移除对象
    */
   remove(goods) {
@@ -2914,7 +2914,7 @@ class Inventory {
   }
 
   /**
-   * 交换物品或装备(如果存在)在包裹中的位置
+   * 交换物品或装备(如果存在)在库存中的位置
    * @param {number} order1 货物1的位置
    * @param {number} order2 货物2的位置
    */
@@ -2977,7 +2977,7 @@ class Inventory {
   }
 
   /**
-   * 排序包裹中的对象
+   * 排序库存中的对象
    * @param {boolean} [byOrder = false] 如果设置为true，则物品优先于装备，通过文件名排序
    */
   sort(byOrder = false) {
@@ -3018,7 +3018,7 @@ class Inventory {
 
   // 
   /**
-   * 增加包裹中的金钱
+   * 增加库存中的金钱
    * @param {number} money 金钱数量
    */
   increaseMoney(money) {
@@ -3026,7 +3026,7 @@ class Inventory {
   }
 
   /**
-   * 减少包裹中的金钱
+   * 减少库存中的金钱
    * @param {number} money 金钱数量
    */
   decreaseMoney(money) {
@@ -3034,7 +3034,7 @@ class Inventory {
   }
 
   /**
-   * 在包裹中创建物品实例
+   * 在库存中创建物品实例
    * @param {string} id 物品文件ID
    * @param {number} quantity 物品数量
    */
@@ -3042,14 +3042,14 @@ class Inventory {
     const data = Data.items[id]
     if (data && quantity > 0) {
       const item = new Item(data)
-      // 插入到包裹
+      // 插入到库存
       this.insert(item)
       item.increase(quantity)
     }
   }
 
   /**
-   * 在包裹中增加物品数量(如果找不到物品，新建一个实例)
+   * 在库存中增加物品数量(如果找不到物品，新建一个实例)
    * @param {string} id 物品文件ID
    * @param {number} quantity 物品数量
    */
@@ -3066,7 +3066,7 @@ class Inventory {
   }
 
   /**
-   * 在包裹中减少物品数量(从多个物品实例中减去足够的数量)
+   * 在库存中减少物品数量(从多个物品实例中减去足够的数量)
    * @param {string} id 物品文件ID
    * @param {number} quantity 物品数量
    */
@@ -3089,7 +3089,7 @@ class Inventory {
   }
 
   /**
-   * 在包裹中创建装备实例(通过文件ID)
+   * 在库存中创建装备实例(通过文件ID)
    * @param {string} id 装备文件ID
    */
   createEquipment(id) {
@@ -3100,7 +3100,7 @@ class Inventory {
   }
 
   /**
-   * 从包裹中删除装备实例(通过文件ID)
+   * 从库存中删除装备实例(通过文件ID)
    * @param {string} id 装备文件ID
    */
   deleteEquipment(id) {
@@ -3111,7 +3111,7 @@ class Inventory {
   }
 
   /**
-   * 添加装备实例到包裹
+   * 添加装备实例到库存
    * @param {Equipment} equipment 装备实例
    */
   gainEquipment(equipment) {
@@ -3122,7 +3122,7 @@ class Inventory {
   }
 
   /**
-   * 从包裹中移除装备实例
+   * 从库存中移除装备实例
    * @param {Equipment} equipment 装备实例
    */
   loseEquipment(equipment) {
@@ -3131,7 +3131,7 @@ class Inventory {
     }
   }
 
-  /** 保存包裹数据 */
+  /** 保存库存数据 */
   saveData(actor) {
     if (this.actor !== actor) {
       return {
@@ -3152,7 +3152,7 @@ class Inventory {
   }
 
   /**
-   * 加载包裹数据
+   * 加载库存数据
    * @param {Object} inventory
    */
   loadData(inventory) {
@@ -3196,10 +3196,10 @@ class Inventory {
     this.pointer = i
   }
 
-  // 引用包裹延迟处理列表
+  // 引用库存延迟处理列表
   static references = []
 
-  // 恢复包裹引用
+  // 恢复库存引用
   static reference() {
     for (const {actor, ref} of this.references) {
       const target = ActorManager.get(ref)
@@ -3706,7 +3706,7 @@ class TargetManager {
         // 如果角色已激活，距离小于等于探测距离，且符合条件，则把该角色添加到目标列表中
         if (actor.active && (ox - actor.x) ** 2 + (oy - actor.y) ** 2 <= square &&
           inspector(owner, actor) && (inSight === false ||
-          Scene.isInLineOfSight(ox, oy, actor.x, actor.y))) {
+          actor.parent.scene.isInLineOfSight(ox, oy, actor.x, actor.y))) {
           this.append(actor)
         }
       }

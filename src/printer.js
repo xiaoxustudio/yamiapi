@@ -8,6 +8,10 @@ class Printer {
    *  @type {Texture}
    */ texture
 
+  /** 图像列表
+   *  @type {Array<ImageElement>}
+   */ images
+
   /** 用来绘制文字的2D画布
    *  @type {HTMLCanvasElement}
    */ canvas
@@ -149,6 +153,8 @@ class Printer {
     texture.base.printer = this
     texture.base.onRestore = Printer.restoreTexture
     this.texture = texture
+    this.images = []
+    this.images.changed = false
     this.canvas = document.createElement('canvas')
     this.canvas.width = 0
     this.canvas.height = 0
@@ -259,6 +265,7 @@ class Printer {
    * @returns {Printer}
    */
   reset() {
+    this.destroy()
     this.content = ''
     this.x = 0
     this.y = 0
@@ -276,6 +283,17 @@ class Printer {
     if (colors.length !== 1) this.colors = [colors[colors.length - 1]]
     if (effects.length !== 1) this.effects = [effects[effects.length - 1]]
     return this
+  }
+
+  /** 销毁 */
+  destroy() {
+    if (this.images.length !== 0) {
+      for (const imageElement of this.images) {
+        imageElement.destroy()
+      }
+      this.images.length = 0
+      this.images.changed = true
+    }
   }
 
   /** 更新打印机字体 */
@@ -432,6 +450,60 @@ class Printer {
     }
   }
 
+  /** 加载图像 */
+  loadImage(guid, clip, width, height) {
+    // 排除无效图像宽高
+    if (width * height === 0) return
+
+    // 创建图像元素
+    const imageElement = new ImageElement()
+    imageElement.startX = this.x
+    imageElement.startY = this.y
+    imageElement.image = guid
+    imageElement.set({
+      x: this.x,
+      y: this.y,
+      width: width,
+      height: height,
+    })
+    if (clip) {
+      imageElement.display = 'clip'
+      imageElement.clip.set(clip)
+    }
+    this.images.push(imageElement)
+    this.images.changed = true
+
+    // 设置绘制指令
+    const horizontal = this.horizontal
+    const letterSpacing = this.letterSpacing
+    const commands = this.commands
+    const command = Printer.fetchCommand()
+    // 设置打印机指令
+    commands.push(command)
+    command.x = this.x
+    command.y = this.y
+    command.image = imageElement
+    command.imageWidth = width
+    command.imageHeight = height
+    command.imageSpacing = (horizontal ? width : height) + letterSpacing
+    command.drawingMethod = Function.empty
+
+    // 重置属性(通用)
+    this.breakable = true
+    // 根据不同的文本方向，计算下一个位置、行高、文本区域宽度、文本区域高度
+    if (horizontal) {
+      this.x += width + letterSpacing
+      this.lineHeight = Math.max(this.lineHeight, height)
+      this.width = Math.max(this.width, this.x)
+      this.height = Math.max(this.height, this.y + this.lineHeight)
+    } else {
+      this.y += height + letterSpacing
+      this.lineHeight = Math.max(this.lineHeight, width)
+      this.width = Math.max(this.width, this.x + this.lineHeight)
+      this.height = Math.max(this.height, this.y)
+    }
+  }
+
   /** 计算文本位置 */
   calculateTextPosition() {
     switch (this.direction) {
@@ -455,7 +527,12 @@ class Printer {
           if (lineX !== command.x) {
             while (index < i) {
               // 上一行文本的位置 = 右侧位置 - 行高
-              commands[index++].x = x - lineHeight
+              const command = commands[index++]
+              command.x = x - lineHeight
+              if (command.image) {
+                command.image.startX = command.x
+                command.image.set({x: command.x})
+              }
             }
             if (lineX !== undefined) {
               // 右侧位置减去行高和行间距
@@ -466,11 +543,16 @@ class Printer {
             lineHeight = 0
           }
           // 获取最大的水平宽度作为行高
-          lineHeight = Math.max(lineHeight, command.horizontalWidth)
+          lineHeight = Math.max(lineHeight, command.horizontalWidth, command.imageWidth)
         }
         while (index < length) {
           // 最后一行文本的位置 = 右侧位置 - 行高
-          commands[index++].x = x - lineHeight
+          const command = commands[index++]
+          command.x = x - lineHeight
+          if (command.image) {
+            command.image.startX = command.x
+            command.image.set({x: command.x})
+          }
         }
         break
       }
@@ -494,10 +576,15 @@ class Printer {
             lineX = factor * (
               lineWidth
             - command.x
+            - command.imageSpacing
             - command.horizontalWidth
             )
           }
           command.x += lineX
+          if (command.image) {
+            command.image.startX += lineX
+            command.image.transform.x = command.image.startX
+          }
         }
       }
     } else {
@@ -519,11 +606,16 @@ class Printer {
             lineY = factor * (
               lineWidth
             - command.y
+            - command.imageSpacing
             - command.string.length
             * (command.size + letterSpacing)
             )
           }
           command.y += lineY
+          if (command.image) {
+            command.image.startY += lineY
+            command.image.transform.y = command.image.startY
+          }
         }
       }
     }
@@ -578,7 +670,7 @@ class Printer {
     Printer.resetCommands()
   }
 
-  // 检查包裹文本是否溢出
+  // 检查库存文本是否溢出
   isWrapOverflowing() {
     const {content} = this
     const {length} = content
@@ -671,7 +763,7 @@ class Printer {
         continue
       }
 
-      // 包裹文本溢出
+      // 库存文本溢出
       if (wordWrap && Printer.wordWrap === 'keep' && this.index >= this.wrapEnd && this.isWrapOverflowing()) {
         this.drawBuffer()
         this.newLine()
@@ -921,6 +1013,36 @@ class Printer {
       this.index += match[0].length
       return true
     }
+    // 使用指定图像
+    if (match = string.match(regexps.image)) {
+      const guid = match[1]
+      let clip = null
+      let width = 0
+      let height = 0
+      if (!match[2]) {
+        // 存在1个参数
+        width = this.sizes[0]
+        height = this.sizes[0]
+      } else if (!match[4]) {
+        // 存在3个参数
+        width = parseInt(match[2])
+        height = parseInt(match[3])
+      } else {
+        // 存在5-7个参数
+        clip = [
+          parseInt(match[2]),
+          parseInt(match[3]),
+          parseInt(match[4]),
+          parseInt(match[5]),
+        ]
+        width = parseInt(match[6] ?? this.sizes[0])
+        height = parseInt(match[7] ?? this.sizes[0])
+      }
+      this.drawBuffer()
+      this.loadImage(guid, clip, width, height)
+      this.index += match[0].length
+      return true
+    }
     return false
   }
 
@@ -978,6 +1100,8 @@ class Printer {
     textOutline: /^<outline:([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?>$/i,
     // 结束轮廓效果
     textOutlineRestore: /^<\/outline>$/i,
+    // 使用指定图像: [1]:GUID(16个字符), [2]:参数1(0-10000)(可选), [3]:参数2(0-10000)(可选), [4]:参数1(0-10000)(可选), [5]:参数2(0-10000)(可选), [6]:参数1(0-10000)(可选), [7]:参数2(0-10000)(可选)
+    image: /^<image:([0-9a-f]{16})(?:,(\d|[1-9]\d|[1-9]\d\d|[1-9]\d\d\d|10000),(\d|[1-9]\d|[1-9]\d\d|[1-9]\d\d\d|10000))?(?:,(\d|[1-9]\d|[1-9]\d\d|[1-9]\d\d\d|10000),(\d|[1-9]\d|[1-9]\d\d|[1-9]\d\d\d|10000))?(?:,(\d|[1-9]\d|[1-9]\d\d|[1-9]\d\d\d|10000),(\d|[1-9]\d|[1-9]\d\d|[1-9]\d\d\d|10000))?>$/i,
   }
 
   /**
@@ -1104,6 +1228,10 @@ class Printer {
         size: 0,
         color: 0,
         effect: null,
+        image: null,
+        imageWidth: 0,
+        imageHeight: 0,
+        imageSpacing: 0,
         horizontalWidth: 0,
         drawingMethod: '',
       }
@@ -1123,6 +1251,11 @@ class Printer {
     for (let i = 0; i < count; i++) {
       const command = commands[i]
       command.string = ''
+      command.image = null
+      command.imageWidth = 0
+      command.imageHeight = 0
+      command.imageSpacing = 0
+      command.horizontalWidth = 0
     }
     this.commandCount = 0
   }

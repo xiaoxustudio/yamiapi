@@ -166,7 +166,15 @@ const File = new class {
 
   /** 获取文件路径(客户端专用) */
   route(relativePath) {
-    return require('path').resolve(__dirname, relativePath)
+    const root = /^\$[\\\/]/
+    let dirname = __dirname
+    // 如果使用了根目录标记
+    if (root.test(relativePath)) {
+      // 如果用户使用electron-builder打包应用，重新定位到根目录
+      dirname = dirname.replace(/[\\\/]resources[\\\/]app\.asar$/, '')
+      relativePath = relativePath.replace(root, '')
+    }
+    return require('path').resolve(dirname, relativePath)
   }
 
   /**

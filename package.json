@@ -1,0 +1,27 @@
+{
+  "name": "yami",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "jsdoc serve",
+    "build": "jsdoc -c ./conf.json --verbose ",
+    "build:doc":"docsify serve"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaoxustudio/yamiapi.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/xiaoxustudio/yamiapi/issues"
+  },
+  "homepage": "https://github.com/xiaoxustudio/yamiapi#readme",
+  "devDependencies": {
+    "minami": "^1.2.3"
+  }
+}

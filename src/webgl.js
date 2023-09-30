@@ -36,7 +36,7 @@ namespace: {
     stencil: false,
     premultipliedAlpha: false,
     preserveDrawingBuffer: false,
-    desynchronized: false,
+    desynchronized: true,
   }
 
   // 优先使用WebGL2(Win10 DirectX11)
@@ -2131,6 +2131,7 @@ class Texture {
     }
     const gl = this.gl
     this.clip(sx, sy, sw, sh)
+    gl.reset()
     gl.bindFBO(gl.frameBuffer)
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.base.glTexture, 0)
     gl.drawImage(this, 0, 0, width, height)

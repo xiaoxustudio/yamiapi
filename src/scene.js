@@ -218,7 +218,9 @@ const Scene = new class {
   }
 
   /** 删除当前场景 */
-  delete() {
+  async delete() {
+    // 推迟到栈尾执行
+    await void 0
     const scene = this.get()
     if (scene !== null) {
       scene.destroy()
@@ -284,8 +286,6 @@ const Scene = new class {
     this.emitters = scene.emitters
     this.convert = scene.convert
     this.convert2f = scene.convert2f
-    this.isInWallBlock = scene.isInWallBlock
-    this.isInLineOfSight = scene.isInLineOfSight
     this.spriteRenderer.setObjectLists(
       scene.actors,
       scene.animations,
@@ -298,8 +298,6 @@ const Scene = new class {
       if (this.binding === scene) {
         this.convert = scene.convert
         this.convert2f = scene.convert2f
-        this.isInWallBlock = scene.isInWallBlock
-        this.isInLineOfSight = scene.isInLineOfSight
         GL.setContrast(scene.contrast)
         GL.setAmbientLight(scene.ambient)
         scene.initialize()
@@ -1210,14 +1208,6 @@ class SceneContext {
    *  @type {Function}
    */ convert2f
 
-  /** 判断目标点是否在墙块中
-   *  @type {Function}
-   */ isInWallBlock
-
-  /** 判断起点和终点是否在视线内可见
-   *  @type {Function}
-   */ isInLineOfSight
-
   /**
    * 场景上下文对象
    * @param {string} id 场景文件ID
@@ -1860,8 +1850,156 @@ class SceneContext {
   initialize() {}
   convert() {return Scene.sharedPoint}
   convert2f() {return Scene.sharedPoint}
-  isInWallBlock() {}
-  isInLineOfSight() {}
+
+  /**
+   * 判断目标点是否在墙块中
+   * @param {number} x 场景坐标X
+   * @param {number} y 场景坐标Y
+   * @returns {boolean}
+   */
+  isInWallBlock(x, y) {
+    return x >= 0 && y >= 0 && x < this.width && y < this.height &&
+    this.terrainObstacles[Math.floor(x) + Math.floor(y) * this.width] === 0b10
+  }
+
+  /**
+   * 判断起点和终点是否在视线内可见
+   * @param {number} sx 起点场景X
+   * @param {number} sy 起点场景Y
+   * @param {number} dx 终点场景X
+   * @param {number} dy 终点场景Y
+   * @returns {boolean}
+   */
+  isInLineOfSight(sx, sy, dx, dy) {
+    const width = this.width
+    const height = this.height
+    // 如果坐标点在场景网格外，返回false(不可视)
+    if (sx < 0 || sx >= width ||
+      sy < 0 || sy >= height ||
+      dx < 0 || dx >= width ||
+      dy < 0 || dy >= height) {
+      return false
+    }
+    const {terrainObstacles} = this
+    const tsx = Math.floor(sx)
+    const tsy = Math.floor(sy)
+    const tdx = Math.floor(dx)
+    const tdy = Math.floor(dy)
+    if (tsx !== tdx) {
+      // 如果水平网格坐标不同
+      const unitY = (dy - sy) / (dx - sx)
+      const step = sx < dx ? 1 : -1
+      const start = tsx + step
+      const end = tdx + step
+      // 在水平方向上栅格化相交的地形
+      for (let x = start; x !== end; x += step) {
+        const _x = step > 0 ? x : x + 1
+        const y = Math.floor(sy + (_x - sx) * unitY)
+        // 连接起点和终点，连线被垂直网格线切分成若干点
+        // 如果其中一个交点的网格区域是墙块，则不可视
+        if (terrainObstacles[x + y * width] === 0b10) {
+          return false
+        }
+      }
+    }
+    if (tsy !== tdy) {
+      // 如果垂直网格坐标不同
+      const unitX = (dx - sx) / (dy - sy)
+      const step = sy < dy ? 1 : -1
+      const start = tsy + step
+      const end = tdy + step
+      // 在垂直方向上栅格化相交的地形
+      for (let y = start; y !== end; y += step) {
+        const _y = step > 0 ? y : y + 1
+        const x = Math.floor(sx + (_y - sy) * unitX)
+        // 连接起点和终点，连线被水平网格线切分成若干点
+        // 如果其中一个交点的网格区域是墙块，则不可视
+        if (terrainObstacles[x + y * width] === 0b10) {
+          return false
+        }
+      }
+    }
+    // 如果起点和终点的网格区域都不是墙块，则可视
+    return terrainObstacles[tsx + tsy * width] !== 0b10 &&
+           terrainObstacles[tdx + tdy * width] !== 0b10
+  }
+
+  /**
+   * 获取两点之间射线的第一个墙块位置
+   * @param {number} sx 起点场景X
+   * @param {number} sy 起点场景Y
+   * @param {number} dx 终点场景X
+   * @param {number} dy 终点场景Y
+   * @returns {Object|null}
+   */
+  getWallPosByRay(sx, sy, dx, dy) {
+    const width = this.width
+    const height = this.height
+    let target = null
+    let weight = Infinity
+    // 如果坐标点在场景网格外
+    if (sx < 0 || sx >= width ||
+      sy < 0 || sy >= height ||
+      dx < 0 || dx >= width ||
+      dy < 0 || dy >= height) {
+      return target
+    }
+    const {terrainObstacles} = this
+    const tsx = Math.floor(sx)
+    const tsy = Math.floor(sy)
+    const tdx = Math.floor(dx)
+    const tdy = Math.floor(dy)
+    if (tsx !== tdx) {
+      // 如果水平网格坐标不同
+      const unitY = (dy - sy) / (dx - sx)
+      const step = sx < dx ? 1 : -1
+      const start = tsx + step
+      const end = tdx + step
+      // 在水平方向上栅格化相交的地形
+      for (let x = start; x !== end; x += step) {
+        const _x = step > 0 ? x : x + 1
+        const y = Math.floor(sy + (_x - sx) * unitY)
+        // 连接起点和终点，连线被垂直网格线切分成若干点
+        // 如果其中一个交点的网格区域是墙块
+        if (terrainObstacles[x + y * width] === 0b10) {
+          weight = Math.dist(sx, sy, x + 0.5, y + 0.5)
+          target = {x, y}
+          break
+        }
+      }
+    }
+    if (tsy !== tdy) {
+      // 如果垂直网格坐标不同
+      const unitX = (dx - sx) / (dy - sy)
+      const step = sy < dy ? 1 : -1
+      const start = tsy + step
+      const end = tdy + step
+      // 在垂直方向上栅格化相交的地形
+      for (let y = start; y !== end; y += step) {
+        const _y = step > 0 ? y : y + 1
+        const x = Math.floor(sx + (_y - sy) * unitX)
+        // 连接起点和终点，连线被水平网格线切分成若干点
+        // 如果其中一个交点的网格区域是墙块
+        if (terrainObstacles[x + y * width] === 0b10) {
+          const dist = Math.dist(sx, sy, x + 0.5, y + 0.5)
+          if (dist < weight) {
+            weight = dist
+            target = {x, y}
+          }
+          break
+        }
+      }
+    }
+    // 如果起点的网格区域是墙块
+    if (target === null && terrainObstacles[tsx + tsy * width] === 0b10) {
+      target = {x: tsx, y: tsy}
+    }
+    // 如果终点的网格区域是墙块
+    if (target === null && terrainObstacles[tdx + tdy * width] === 0b10) {
+      target = {x: tdx, y: tdy}
+    }
+    return target
+  }
 
   /**
    * 创建闭包方法
@@ -1942,74 +2080,6 @@ class SceneContext {
       point.x = x * tileWidth
       point.y = y * tileHeight
       return point
-    }
-
-    /**
-     * 判断目标点是否在墙块中
-     * @param {number} x 场景坐标X
-     * @param {number} y 场景坐标Y
-     * @returns {boolean}
-     */
-    scene.isInWallBlock = (x, y) => {
-      return x >= 0 && x < width && y >= 0 && y < height &&
-      terrainObstacles[floor(x) + floor(y) * width] === 0b10
-    }
-
-    /**
-     * 判断起点和终点是否在视线内可见
-     * @param {number} sx 起点场景X
-     * @param {number} sy 起点场景Y
-     * @param {number} dx 终点场景X
-     * @param {number} dy 终点场景Y
-     * @returns {boolean}
-     */
-    scene.isInLineOfSight = (sx, sy, dx, dy) => {
-      // 如果坐标点在场景网格外，返回false(不可视)
-      if (sx < 0 || sx >= width ||
-        sy < 0 || sy >= height ||
-        dx < 0 || dx >= width ||
-        dy < 0 || dy >= height) {
-        return false
-      }
-      const tsx = floor(sx)
-      const tsy = floor(sy)
-      const tdx = floor(dx)
-      const tdy = floor(dy)
-      if (tsx !== tdx) {
-        // 如果水平网格坐标不同
-        const unitY = (dy - sy) / (dx - sx)
-        const step = sx < dx ? 1 : -1
-        const start = tsx + step
-        const end = tdx
-        // 在水平方向上栅格化相交的地形
-        for (let x = start; x !== end; x += step) {
-          const y = sy + (x - sx) * unitY
-          // 连接起点和终点，连线被垂直网格线切分成若干点
-          // 如果其中一个交点的网格区域是墙块，则不可视
-          if (terrainObstacles[x + floor(y) * width] === 0b10) {
-            return false
-          }
-        }
-      }
-      if (tsy !== tdy) {
-        // 如果垂直网格坐标不同
-        const unitX = (dx - sx) / (dy - sy)
-        const step = sy < dy ? 1 : -1
-        const start = tsy + step
-        const end = tdy
-        // 在垂直方向上栅格化相交的地形
-        for (let y = start; y !== end; y += step) {
-          const x = sx + (y - sy) * unitX
-          // 连接起点和终点，连线被水平网格线切分成若干点
-          // 如果其中一个交点的网格区域是墙块，则不可视
-          if (terrainObstacles[floor(x) + y * width] === 0b10) {
-            return false
-          }
-        }
-      }
-      // 如果起点和终点的网格区域都不是墙块，则可视
-      return terrainObstacles[tsx + tsy * width] !== 0b10 &&
-             terrainObstacles[tdx + tdy * width] !== 0b10
     }
   }
 
@@ -3183,6 +3253,7 @@ class SceneTilemap {
               type: 'normal',
               tileset: tileset,
               terrain: tileset.terrains[id],
+              tag: tileset.tags[id],
               priority: tileset.priorities[id] + tileset.globalPriority,
             }
             return
@@ -3201,6 +3272,7 @@ class SceneTilemap {
               type: 'auto',
               tileset: tileset,
               terrain: tileset.terrains[id],
+              tag: tileset.tags[id],
               priority: tileset.priorities[id] + tileset.globalPriority,
               autoTile: autoTile,
               template: template,
@@ -3455,12 +3527,6 @@ class SceneTilemap {
     }
   }
 
-  // 更新自动图块帧
-  updateAutoTileFrame(x, y) {
-    const width = this.width
-    const height = this.height
-  }
-
   /**
    * 更新场景瓦片地图
    * @param {number} deltaTime 增量时间(毫秒)
@@ -3506,9 +3572,7 @@ class SceneTilemap {
         const i = x + y * width
         const tile = tiles[i]
         const array = imageData[tile]
-        if (array === null) {
-          continue
-        }
+        if (!array) continue
         // 向渲染器添加纹理索引
         push(array[0])
         const fi = frame % array[2] * 4 + 7
@@ -3906,9 +3970,7 @@ class SceneActorList extends Array {
   update(deltaTime) {
     let maxColliderSize = 0
     let maxGridCellSize = 0
-    const {length} = this
-    for (let i = 0; i < length; i++) {
-      const actor = this[i]
+    for (const actor of this) {
       actor.update(deltaTime)
       if (maxGridCellSize < actor.collider.size) {
         if (maxColliderSize < actor.collider.size) {
@@ -4034,7 +4096,7 @@ class SceneActorList extends Array {
         }
       }
     }
-    // 恢复包裹引用
+    // 恢复库存引用
     Inventory.reference()
   }
 }
@@ -4092,9 +4154,8 @@ class SceneAnimationList extends Array {
    * @param {number} deltaTime 增量时间(毫秒)
    */
   update(deltaTime) {
-    const {length} = this
-    for (let i = 0; i < length; i++) {
-      this[i].update(deltaTime)
+    for (const animation of this) {
+      animation.update(deltaTime)
     }
   }
 
@@ -4323,9 +4384,8 @@ class SceneTriggerList extends Array {
    * @param {number} deltaTime 增量时间(毫秒)
    */
   update(deltaTime) {
-    const {length} = this
-    for (let i = 0; i < length; i++) {
-      this[i].update(deltaTime)
+    for (const trigger of this) {
+      trigger.update(deltaTime)
     }
   }
 
@@ -4390,9 +4450,8 @@ class SceneRegionList extends Array {
    * @param {number} deltaTime 增量时间(毫秒)
    */
   update(deltaTime) {
-    const {length} = this
-    for (let i = 0; i < length; i++) {
-      this[i].update(deltaTime)
+    for (const region of this) {
+      region.update(deltaTime)
     }
   }
 
@@ -4461,29 +4520,9 @@ class SceneRegion {
    *  @type {number}
    */ y
 
-  /** 场景区域左边位置
-   *  @type {number}
-   */ left
-
-  /** 场景区域顶部位置
-   *  @type {number}
-   */ top
-
-  /** 场景区域右边位置
-   *  @type {number}
-   */ right
-
-  /** 场景区域底部位置
-   *  @type {number}
-   */ bottom
-
   /** 场景区域中已进入角色列表
    *  @type {Array<Actor>}
    */ actors
-
-  /** 场景区域覆盖的角色分区列表
-   *  @type {Array<Array<Actor>>}
-   */ cells
 
   /** 场景区域更新器模块列表
    *  @type {ModuleList}
@@ -4518,22 +4557,19 @@ class SceneRegion {
     this.width = data.width
     this.height = data.height
     this.actors = []
-    this.cells = []
     this.updaters = new ModuleList()
     this.events = data.events
     this.script = Script.create(this, data.scripts)
     this.parent = null
     this.started = false
     this.createEventUpdaters()
-    this.updateBoundingRect()
-    this.updateGridCells()
   }
 
   /**
    * 更新场景区域
    * @param {number} deltaTime 增量时间(毫秒)
    */
-   update(deltaTime) {
+  update(deltaTime) {
     this.updaters.update(deltaTime)
   }
 
@@ -4567,14 +4603,22 @@ class SceneRegion {
     // 如果存在相关事件，才会创建更新器
     const {playerenter, playerleave, actorenter, actorleave} = this.events
     if (playerenter || playerleave || actorenter || actorleave) {
-      const {cells, updaters} = this
       const selections = this.actors
-      updaters.push({
+      this.updaters.push({
         update: () => {
           // 检测进入区域的角色
-          const {left, top, right, bottom} = this
-          const length = cells.length
-          for (let i = 0; i < length; i++) {
+          const x = this.x
+          const y = this.y
+          const wh = this.width / 2
+          const hh = this.height / 2
+          const left = x - wh
+          const top = y - hh
+          const right = x + wh
+          const bottom = y + hh
+          const scene = this.parent.scene
+          const cells = scene.actors.cells.get(left, top, right, bottom)
+          const count = cells.count
+          for (let i = 0; i < count; i++) {
             const actors = cells[i]
             const length = actors.length
             for (let i = 0; i < length; i++) {
@@ -4613,32 +4657,6 @@ class SceneRegion {
           }
         }
       })
-    }
-  }
-
-  /** 更新区域边界矩形框 */
-  updateBoundingRect() {
-    const x = this.x
-    const y = this.y
-    const wh = this.width / 2
-    const hh = this.height / 2
-    this.left = x - wh
-    this.top = y - hh
-    this.right = x + wh
-    this.bottom = y + hh
-  }
-
-  /** 更新区域所在的角色分区列表 */
-  updateGridCells() {
-    const imports = Scene.actors.cells.get(this.left, this.top, this.right, this.bottom)
-    const count = imports.count
-    const cells = this.cells
-    if (cells.length !== count) {
-      cells.length = count
-    }
-    // 只要区域没有发生移动，网格分区列表就是固定的
-    for (let i = 0; i < count; i++) {
-      cells[i] = imports[i]
     }
   }
 
@@ -4767,9 +4785,8 @@ class SceneLightManager {
    */
   update(deltaTime) {
     for (const group of this.groups) {
-      const length = group.length
-      for (let i = 0; i < length; i++) {
-        group[i].update(deltaTime)
+      for (const light of group) {
+        light.update(deltaTime)
       }
     }
   }
@@ -5575,9 +5592,8 @@ class SceneParticleEmitterList extends Array {
    * @param {number} deltaTime 增量时间(毫秒)
    */
   update(deltaTime) {
-    const length = this.length
-    for (let i = 0; i < length; i++) {
-      this[i].update(deltaTime)
+    for (const emitter of this) {
+      emitter.update(deltaTime)
     }
   }
 
@@ -5895,9 +5911,7 @@ class SceneSpriteRenderer {
           const ti = x + y * width
           const tile = tiles[ti]
           const array = imageData[tile]
-          if (array === null) {
-            continue
-          }
+          if (!array) continue
           const tp = array[1]
           // 把网格底部作为图块锚点
           const ax = (x + 0.5) * tw + ox

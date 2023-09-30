@@ -399,8 +399,8 @@ Command.compileActor = function (actor) {
     case 'player':
       return () => Party.player
     case 'member': {
-      const {memberId} = actor
-      return () => Party.members[memberId]
+      const getMemberId = Command.compileNumber(actor.memberId)
+      return () => Party.members[getMemberId()]
     }
     case 'global': {
       const {actorId} = actor
@@ -652,7 +652,6 @@ Command.compileAngle = function (angle) {
  * @returns {Function}
  */
 Command.compileTrigger = function (trigger) {
-  
   switch (trigger.type) {
     case 'trigger':
       return () => Event.triggerObject
@@ -1687,6 +1686,10 @@ Command.setNumber = function setNumber(IIFE) {
             const getActor = Command.compileActor(operand.actor)
             return () => getActor()?.collider.weight
           }
+          case 'actor-scaling-factor': {
+            const getActor = Command.compileActor(operand.actor)
+            return () => getActor()?.scale
+          }
           case 'actor-inventory-item-quantity': {
             const getActor = Command.compileActor(operand.actor)
             const getId = Command.compileString(operand.itemId)
@@ -2160,6 +2163,10 @@ Command.setString = function setString(IIFE) {
           case 'skill-file-id': {
             const getSkill = Command.compileSkill(operand.skill)
             return () => getSkill()?.id
+          }
+          case 'trigger-file-id': {
+            const getTrigger = Command.compileTrigger(operand.trigger)
+            return () => getTrigger()?.id
           }
           case 'state-file-id': {
             const getState = Command.compileState(operand.state)
@@ -2692,10 +2699,10 @@ Command.loop = function ({mode, conditions, commands}) {
       if (timestamp !== Time.timestamp) {
         timestamp = Time.timestamp
         cycleCount = 1
-      } else if (++cycleCount > 1000000) {
+      } else if (++cycleCount > 100000000) {
         CommandList = nextCommands
         CommandIndex = nextIndex
-        console.error(`The number of loops exceeds 1000000, it may be an infinite loop.\n${cmdpath}`)
+        console.error(`The number of loops exceeds 100000000, it may be an infinite loop.\n${cmdpath}`)
       }
     }
   }
@@ -3129,7 +3136,7 @@ Command.setEvent = function ({operation, variable, eventId, choiceIndex}) {
  * @param {string} $.easingId
  * @param {number|VariableGetter} $.duration
  * @param {Array} $.commands
- * @returns {null}
+ * @returns {Function|null}
  */
 Command.transition = function ({variable, start, end, easingId, duration, commands}) {
   if (commands.length === 0) {
@@ -5840,7 +5847,6 @@ Command.setSkill = function ({skill, operation, cooldown}) {
  * @returns {Function|null}
  */
 Command.createTrigger = function ({triggerId, caster, origin, angle, distance, scale, timeScale}) {
-  
   const getTriggerId = Command.compileString(triggerId)
   const getCaster = Command.compileActor(caster)
   const getOrigin = Command.compilePosition(origin)
@@ -5958,7 +5964,7 @@ Command.setTriggerMotion = function ({trigger, motion}) {
 }
 
 /**
- * 设置包裹
+ * 设置库存
  * @param {Object} $
  * @param {ActorGetter} $.actor
  * @param {string} $.operation
@@ -6825,8 +6831,14 @@ Command.setLanguage = function ({language}) {
  * @returns {Function|null}
  */
 Command.script = function ({script}) {
+  let {escape} = Command.script
+  if (escape === undefined) {
+    escape = /(?<=(?:[^\p{L}$_\d\s]|\n|^)\s*)\(\s*([\p{L}$_\d]+)\s*\)/gu
+    Command.script.escape = escape
+  }
   try {
-    const fn = new Function(script)
+    const code = script.replace(escape, 'Event.attributes["$1"]')
+    const fn = new Function(code)
     return () => (fn(), true)
   } catch (error) {
     return null

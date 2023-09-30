@@ -2417,6 +2417,11 @@ class TextElement extends UIElement {
       GL.blend = this.blend
       GL.matrix.set(this.matrix)
       GL.drawImage(this.texture, this._textOuterX, this._textOuterY, this._textOuterWidth, this._textOuterHeight)
+
+      // 绘制内嵌图像元素
+      for (const image of this.printer.images) {
+        image.draw()
+      }
     }
 
     // 绘制子元素
@@ -2428,6 +2433,9 @@ class TextElement extends UIElement {
     if (this.visible) {
       if (this.parent instanceof WindowElement) {
         return this.parent.requestResizing()
+      }
+      if (this.printer) {
+        this.printer.images.changed = true
       }
       this.calculatePosition()
       this.calculateTextPosition()
@@ -2461,12 +2469,32 @@ class TextElement extends UIElement {
       this._textOuterY = outerY + offsetY
       this._textOuterWidth = outerWidth
       this._textOuterHeight = outerHeight
+
+      // 调整内嵌图像元素
+      this.resizeEmbeddedImages(offsetX, offsetY)
+    }
+  }
+
+  /** 调整内嵌图像元素 */
+  resizeEmbeddedImages(offsetX, offsetY) {
+    const images = this.printer.images
+    if (images.changed) {
+      images.changed = false
+      for (const image of images) {
+        const transform = image.transform
+        transform.x = image.startX + offsetX
+        transform.y = image.startY + offsetY
+        image.parent = this
+        image.connected = true
+        image.resize()
+      }
     }
   }
 
   /** 销毁文本元素 */
   destroy() {
     this.texture?.destroy()
+    this.printer?.destroy()
     return super.destroy()
   }
 }
@@ -3668,7 +3696,7 @@ class DialogBoxElement extends UIElement {
         continue
       }
 
-      // 包裹文本溢出
+      // 库存文本溢出
       if (Printer.wordWrap === 'keep' && printer.index >= printer.wrapEnd && printer.isWrapOverflowing()) {
         this.drawBuffer()
         printer.newLine()
@@ -3729,6 +3757,14 @@ class DialogBoxElement extends UIElement {
       GL.blend = this.blend
       GL.matrix.set(this.matrix)
       GL.drawImage(this.texture, this._textOuterX, this._textOuterY, this._textOuterWidth, this._textOuterHeight)
+
+      // 调整内嵌图像元素
+      this.resizeEmbeddedImages()
+
+      // 绘制内嵌图像元素
+      for (const image of this.printer.images) {
+        image.draw()
+      }
     }
 
     // 绘制子元素
@@ -3740,6 +3776,9 @@ class DialogBoxElement extends UIElement {
     if (this.visible) {
       if (this.parent instanceof WindowElement) {
         return this.parent.requestResizing()
+      }
+      if (this.printer) {
+        this.printer.images.changed = true
       }
       this.calculatePosition()
       this.calculateTextPosition()
@@ -3758,9 +3797,23 @@ class DialogBoxElement extends UIElement {
     }
   }
 
+  /** 调整内嵌图像元素 */
+  resizeEmbeddedImages() {
+    const images = this.printer.images
+    if (images.changed) {
+      images.changed = false
+      for (const image of images) {
+        image.parent = this
+        image.connected = true
+        image.resize()
+      }
+    }
+  }
+
   /** 销毁对话框元素 */
   destroy() {
     this.texture?.destroy()
+    this.printer?.destroy()
     return super.destroy()
   }
 }
