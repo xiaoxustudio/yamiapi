@@ -1,6 +1,6 @@
 <!--
  * @Author: xuranXYS
- * @LastEditTime: 2023-09-30 16:00:17
+ * @LastEditTime: 2023-09-30 19:51:19
  * @GitHub: www.github.com/xiaoxustudio
  * @WebSite: www.xiaoxustudio.top
  * @Description: By xuranXY
@@ -12,4 +12,4 @@
 * * [main.js分析](base/main)
 * * [data.js分析](base/data)
 * API 
-* * [API](./out/index.html)
+* * [API](out/index.html)
