@@ -1,6 +1,6 @@
 <!--
  * @Author: xuranXYS
- * @LastEditTime: 2023-10-02 15:15:44
+ * @LastEditTime: 2023-10-02 15:37:17
  * @GitHub: www.github.com/xiaoxustudio
  * @WebSite: www.xiaoxustudio.top
  * @Description: By xuranXYS
@@ -176,5 +176,89 @@ const CacheList = new class extends Array {
   }
 }
 ```
+
+还是从`Array`继承并创建了一个类来使用，不过这个的update属性会循环将里面的字符串索引赋值成undifined  
+借此达到删除数据的目的
+
+再往下看
+```js
+// ******************************** 错误报告器 ********************************
+
+const ErrorReporter = new class {
+  /** 初始化错误报告器 */
+  initialize() {
+    // 侦听事件
+    if (Stats.debug) {
+      // 如果是调试模式，侦听显示错误消息事件
+      window.on('error', this.displayErrorMessage)
+    }
+  }
+
+  /**
+   * 显示错误消息事件
+   * @param {ErrorEvent} event 错误事件
+   */
+  displayErrorMessage(event) {
+    let {log} = GL.container
+    if (!log) {
+      // 创建错误消息日志元素
+      log = document.createElement('div')
+      log.style.position = 'absolute'
+      log.style.left = '0'
+      log.style.bottom = '0'
+      log.style.font = '12px sans-serif'
+      log.style.color = 'white'
+      log.style.textShadow = '1px 1px black'
+      log.style.pointerEvents = 'none'
+      log.style.userSelect = 'none'
+      // 创建更新器
+      log.updater = {
+        update: () => {
+          // 持续显示错误消息5000ms
+          if (log.timestamp + 5000 <= Time.timestamp) {
+            // 结束时延迟移除错误消息元素和更新器
+            setTimeout(() => {
+              GL.container.log = null
+              GL.container.removeChild(log)
+              Game.updaters.remove(log.updater)
+            })
+          }
+        }
+      }
+      // 添加错误消息元素和更新器
+      GL.container.log = log
+      GL.container.appendChild(log)
+      Game.updaters.add(log.updater)
+    }
+    log.textContent = event.message
+    log.timestamp = Time.timestamp
+  }
+}
+
+```
+上面的代码定义了个错误报告器  
+当工程处于调试状态的时候，会监听我们的错误，并且在document上创建元素来显示错误信息
+
+最后的  
+```js
+// ******************************** 其他 ********************************
+
+// 阻止上下文菜单
+window.on('contextmenu', function (event) {
+  event.preventDefault()
+})
+
+// 阻止拖拽元素
+window.on('dragstart', function (event) {
+  event.preventDefault()
+})
+
+if (Stats.shell === 'electron' && window.devicePixelRatio !== 1) {
+  require('electron').ipcRenderer.send('set-device-pixel-ratio', window.devicePixelRatio)
+}
+```
+这最后就是阻止原生的拖拽和右击菜单  
+还判断是否是`electron`且`window.devicePixelRatio`不等于-1就设置设备像素比率，传入的参数是像素比率(`引擎内置功能`)  
+
 
 
