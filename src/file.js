@@ -299,13 +299,3 @@ const GUID = new class {
     return id
   }
 }
-
-// ******************************** 提前加载配置文件(减少启动等待事件) ********************************
-
-!function LoadConfig() {
-  window.config = File.get({
-    path: 'Data/config.json',
-    type: 'json',
-    sync: true,
-  })
-}()

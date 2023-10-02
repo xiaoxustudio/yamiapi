@@ -11,6 +11,10 @@ const Scene = new class {
    *  @type {number}
    */ pointer = 0
 
+  /** 场景缩放系数
+   *  @type {number}
+   */ scale = 1
+
   /** 场景上下文列表(A、B场景)
    *  @type {Array<SceneContext|null>}
    */ contexts = [null, null]
@@ -112,6 +116,14 @@ const Scene = new class {
 
   /** 初始化场景管理器 */
   initialize() {
+    // 调试状态重置场景缩放系数
+    // 部署状态恢复场景缩放系数
+    this.setScale(
+      Stats.debug
+    ? Data.config.resolution.sceneScale
+    : Data.globalData.resolution.sceneScale
+    )
+
     // 创建精灵渲染器
     this.spriteRenderer = new SceneSpriteRenderer(
       this.visibleActors,
@@ -126,11 +138,7 @@ const Scene = new class {
     // 绑定默认场景
     this.bind(null)
 
-    // 调整光影纹理
-    GL.resizeLightmap()
-
     // 侦听事件
-    window.on('resize', () => GL.resizeLightmap())
     Input.on('keydown', () => Scene.emitInputEvent('keydown'))
     Input.on('keyup', () => Scene.emitInputEvent('keyup'))
     Input.on('mousedown', () => Scene.emitInputEvent('mousedown'))
@@ -142,6 +150,12 @@ const Scene = new class {
     Input.on('gamepadbuttonrelease', () => Scene.emitInputEvent('gamepadbuttonrelease'))
     Input.on('gamepadleftstickchange', () => Scene.emitInputEvent('gamepadleftstickchange'))
     Input.on('gamepadrightstickchange', () => Scene.emitInputEvent('gamepadrightstickchange'))
+  }
+
+  // 设置缩放系数
+  setScale(value) {
+    this.scale = value
+    Camera.updateZoom()
   }
 
   /** 重置所有场景 */

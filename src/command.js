@@ -1628,6 +1628,30 @@ Command.setNumber = function setNumber(IIFE) {
             const getActor = Command.compileActor(operand.actor)
             return () => getActor()?.y
           }
+          case 'actor-ui-x': {
+            const getActor = Command.compileActor(operand.actor)
+            return () => {
+              const scene = Scene.binding
+              const actor = getActor()
+              if (scene !== null && actor) {
+                const {width, scrollLeft} = Camera
+                const x = actor.x * scene.tileWidth
+                return (x - scrollLeft) / width * GL.width / UI.scale
+              }
+            }
+          }
+          case 'actor-ui-y': {
+            const getActor = Command.compileActor(operand.actor)
+            return () => {
+              const scene = Scene.binding
+              const actor = getActor()
+              if (scene !== null && actor) {
+                const {height, scrollTop} = Camera
+                const y = actor.y * scene.tileHeight
+                return (y - scrollTop) / height * GL.height / UI.scale
+              }
+            }
+          }
           case 'actor-screen-x': {
             const getActor = Command.compileActor(operand.actor)
             return () => {
@@ -1949,6 +1973,10 @@ Command.setNumber = function setNumber(IIFE) {
             return () => Input.mouse.screenX
           case 'mouse-screen-y':
             return () => Input.mouse.screenY
+          case 'mouse-ui-x':
+            return () => Input.mouse.screenX / UI.scale
+          case 'mouse-ui-y':
+            return () => Input.mouse.screenY / UI.scale
           case 'mouse-scene-x':
             return () => Input.mouse.sceneX
           case 'mouse-scene-y':
@@ -1963,10 +1991,16 @@ Command.setNumber = function setNumber(IIFE) {
             return () => Camera.y
           case 'camera-zoom':
             return () => Camera.zoom
+          case 'raw-camera-zoom':
+            return () => Camera.rawZoom
           case 'screen-width':
             return () => GL.width
           case 'screen-height':
             return () => GL.height
+          case 'scene-scale':
+            return () => Scene.scale
+          case 'ui-scale':
+            return () => UI.scale
           case 'scene-width':
             return () => Scene.binding?.width
           case 'scene-height':
@@ -6825,6 +6859,26 @@ Command.setLanguage = function ({language}) {
 }
 
 /**
+ * 设置分辨率
+ * @param {Object} $
+ * @param {number|VariableGetter} $.width
+ * @param {number|VariableGetter} $.height
+ * @param {number|VariableGetter} $.sceneScale
+ * @param {number|VariableGetter} $.uiScale
+ * @returns {Function}
+ */
+Command.setResolution = function ({width, height, sceneScale, uiScale}) {
+  const getWidth = Command.compileNumber(width, 1920, 240, 7680)
+  const getHeight = Command.compileNumber(height, 1080, 240, 7680)
+  const getSceneScale = Command.compileNumber(sceneScale, 1, 0.5, 4)
+  const getUiScale = Command.compileNumber(uiScale, 1, 0.5, 4)
+  return () => {
+    Stage.setResolution(getWidth(), getHeight(), getSceneScale(), getUiScale())
+    return true
+  }
+}
+
+/**
  * 执行脚本
  * @param {Object} $
  * @param {string} $.script
@@ -6833,7 +6887,7 @@ Command.setLanguage = function ({language}) {
 Command.script = function ({script}) {
   let {escape} = Command.script
   if (escape === undefined) {
-    escape = /(?<=(?:[^\p{L}$_\d\s]|\n|^)\s*)\(\s*([\p{L}$_\d]+)\s*\)/gu
+    escape = /(?<=(?:[^\p{L}$_\d\s]|\n|^)\s*)\(\s*([\p{L}$_\d]+)\s*\)(?!\s*=>)/gu
     Command.script.escape = escape
   }
   try {

@@ -15,6 +15,10 @@ const UI = new class {
    *  @type {Array<UIElement>}
    */ focuses = []
 
+  /** 界面缩放系数
+   *  @type {number}
+   */ scale = 1
+
   /** 按下的方向键
    *  @type {string}
    */ dirKey = ''
@@ -60,6 +64,14 @@ const UI = new class {
     this.root = new RootElement()
     this.root.resize()
 
+    // 调试状态重置界面缩放系数
+    // 部署状态恢复界面缩放系数
+    this.setScale(
+      Stats.debug
+    ? Data.config.resolution.uiScale
+    : Data.globalData.resolution.uiScale
+    )
+
     // 引用元素管理器
     this.manager = UIElementManager
 
@@ -98,6 +110,13 @@ const UI = new class {
     Input.on('gamepadbuttonrelease', this.gamepadbuttonrelease)
     Input.on('gamepadleftstickchange', this.gamepadleftstickchange)
     Input.on('gamepadrightstickchange', this.gamepadrightstickchange)
+  }
+
+  // 设置缩放系数
+  setScale(value) {
+    this.scale = value
+    this.root.resize()
+    Printer.updateScale()
   }
 
   /** 加载预设元素 */
@@ -638,7 +657,9 @@ const UI = new class {
 
   /** 重新调整大小事件 */
   resize() {
-    UI.root.resize()
+    // 更新文本框元素中影子输入框的位置
+    const inputs = document.getElementsByClassName('text-box-shadow-input')
+    for (const input of inputs) input.target.calculateHTMLInputPosition()
   }
 
   /** 键盘按下事件 */
@@ -1567,8 +1588,9 @@ class RootElement extends UIElement {
   resize() {
     this.x = 0
     this.y = 0
-    this.width = GL.width
-    this.height = GL.height
+    this.width = GL.width / UI.scale
+    this.height = GL.height / UI.scale
+    this.matrix.reset().scale(UI.scale, UI.scale)
     this.resizeChildren()
   }
 
@@ -2383,15 +2405,8 @@ class TextElement extends UIElement {
       printer.truncate && (printer.horizontal
       ? printer.printHeight !== this.height
       : printer.printWidth !== this.width)) {
-      // 重置打印机
-      if (printer.content) {
-        printer.reset()
-      }
-      // 设置打印区域并打印文本
-      printer.printWidth = this.width
-      printer.printHeight = this.height
-      printer.draw(this._content)
-      this.calculateTextPosition()
+      // 更新打印机并绘制文本
+      this.updatePrinter()
     }
   }
 
@@ -2400,6 +2415,19 @@ class TextElement extends UIElement {
     const content = this._rawContent
     this._rawContent = ''
     this.content = content
+  }
+
+  // 更新打印机
+  updatePrinter() {
+    const {printer} = this
+    // 重置打印机
+    if (printer.content) {
+      printer.reset()
+    }
+    // 设置打印区域并打印文本
+    printer.setPrintArea(this.width, this.height)
+    printer.draw(this.content)
+    this.calculateTextPosition()
   }
 
   /** 绘制文本元素 */
@@ -2447,14 +2475,15 @@ class TextElement extends UIElement {
   calculateTextPosition() {
     const printer = this.printer
     if (printer !== null) {
-      const pl = printer.paddingLeft
-      const pt = printer.paddingTop
-      const pr = printer.paddingRight
-      const pb = printer.paddingBottom
+      const scale = Printer.scale
+      const pl = printer.paddingLeft / scale
+      const pt = printer.paddingTop / scale
+      const pr = printer.paddingRight / scale
+      const pb = printer.paddingBottom / scale
       const outerX = this.x - pl
       const outerY = this.y - pt
-      const outerWidth = this.texture.width
-      const outerHeight = this.texture.height
+      const outerWidth = this.texture.width / scale
+      const outerHeight = this.texture.height / scale
       const innerWidth = outerWidth - pl - pr
       const innerHeight = outerHeight - pt - pb
       const marginWidth = this.width - innerWidth
@@ -2552,6 +2581,7 @@ class TextBoxElement extends UIElement {
   _colorInt             //:number
   _textX                //:number
   _textY                //:number
+  _textWidth            //:number
   _textShiftY           //:number
   _innerWidth           //:number
   _innerHeight          //:number
@@ -2808,6 +2838,7 @@ class TextBoxElement extends UIElement {
         input.value = data.number.toString()
         break
     }
+    input.target = this
     input.maxLength = data.maxLength
     input.style.boxSizing = 'border-box'
     input.style.position = 'fixed'
@@ -2822,6 +2853,26 @@ class TextBoxElement extends UIElement {
     input.style.border = 'none'
     input.style.outline = 'none'
     document.body.appendChild(this.input = input)
+    // 逐帧检测祖先元素的可见性
+    let shadowVisible = true
+    this.updaters.add({
+      update: () => {
+        let visible = true
+        let element = this
+        do {
+          if (element.visible === false) {
+            visible = false
+            break
+          }
+        }
+        while (element = element.parent)
+        // 如果可见性发生了变化
+        if (shadowVisible !== visible) {
+          shadowVisible = visible
+          input.style.display = visible ? 'inherit' : 'none'
+        }
+      }
+    })
     // 创建影子输入框样式
     if (!TextBoxElement.style) {
       const style = document.createElement('style')
@@ -3032,13 +3083,21 @@ class TextBoxElement extends UIElement {
 
     // 如果输入框内容发生了变化，重新绘制文本
     if (printer.content !== input.value) {
-      if (printer.content) {
-        printer.reset()
-      }
-      printer.draw(input.value)
-      if (this.connected) {
-        this.calculateTextPosition()
-      }
+      this.updatePrinter()
+    }
+  }
+
+  // 更新打印机
+  updatePrinter() {
+    const {printer} = this
+    // 重置打印机
+    if (printer.content) {
+      printer.reset()
+    }
+    // 打印文本
+    printer.draw(this.input.value)
+    if (this.connected) {
+      this.calculateTextPosition()
     }
   }
 
@@ -3057,8 +3116,8 @@ class TextBoxElement extends UIElement {
     GL.matrix.set(this.matrix)
 
     // 绘制文字纹理
+    const {scale} = Printer
     const {texture} = this
-    const {base} = texture
     switch (this.focusing) {
       case false:
         // 文本框失去焦点的情况
@@ -3066,9 +3125,10 @@ class TextBoxElement extends UIElement {
           // 绘制可见文本
           const sx = this.scrollLeft
           const sy = this._textShiftY
-          const sw = Math.min(base.width - sx, this._innerWidth)
+          const sw = Math.min(this._textWidth - sx, this._innerWidth)
           const sh = this._innerHeight
-          GL.drawImageWithColor(texture.clip(sx, sy, sw, sh), this._textX, this._textY, texture.width, texture.height, this._colorInt)
+          texture.clip(sx * scale, sy * scale, sw * scale, sh * scale)
+          GL.drawImageWithColor(texture, this._textX, this._textY, sw, sh, this._colorInt)
         }
         break
       case true: {
@@ -3091,24 +3151,27 @@ class TextBoxElement extends UIElement {
           const sy = this._textShiftY
           const sh = this._innerHeight
           // 计算可见文本最右边的位置
-          const tr = Math.min(base.width - this.scrollLeft, this._innerWidth)
+          const tr = Math.min(this._textWidth - this.scrollLeft, this._innerWidth)
           if (0 < sl) {
             // 绘制选中位置左侧的可见文本
             const sx = this.scrollLeft
             const sw = sl
-            GL.drawImageWithColor(texture.clip(sx, sy, sw, sh), this._textX, this._textY, sw, sh, this._colorInt)
+            texture.clip(sx * scale, sy * scale, sw * scale, sh * scale)
+            GL.drawImageWithColor(texture, this._textX, this._textY, sw, sh, this._colorInt)
           }
           if (sl < sr) {
             // 绘制选中的可见文本(选中颜色)
             const sx = SL + Math.max(this.scrollLeft - SL, 0)
             const sw = sr - sl
-            GL.drawImageWithColor(texture.clip(sx, sy, sw, sh), this._textX + sl, this._textY, sw, sh, this._selectionColorInt)
+            texture.clip(sx * scale, sy * scale, sw * scale, sh * scale)
+            GL.drawImageWithColor(texture, this._textX + sl, this._textY, sw, sh, this._selectionColorInt)
           }
           if (sr < tr) {
             // 绘制选中位置右侧的可见文本
             const sx = SR
             const sw = tr - sr
-            GL.drawImageWithColor(texture.clip(sx, sy, sw, sh), this._textX + sr, this._textY, sw, sh, this._colorInt)
+            texture.clip(sx * scale, sy * scale, sw * scale, sh * scale)
+            GL.drawImageWithColor(texture, this._textX + sr, this._textY, sw, sh, this._colorInt)
           }
         } else {
           // 如果选中长度为0
@@ -3116,13 +3179,14 @@ class TextBoxElement extends UIElement {
             // 绘制可见文本
             const sx = this.scrollLeft
             const sy = this._textShiftY
-            const sw = Math.min(base.width - sx, this._innerWidth)
+            const sw = Math.min(this._textWidth - sx, this._innerWidth)
             const sh = this._innerHeight
-            GL.drawImageWithColor(texture.clip(sx, sy, sw, sh), this._textX, this._textY, texture.width, texture.height, this._colorInt)
+            texture.clip(sx * scale, sy * scale, sw * scale, sh * scale)
+            GL.drawImageWithColor(texture, this._textX, this._textY, sw, sh, this._colorInt)
           }
 
-          // 绘制光标
-          if (this._cursorVisible) {
+          // 绘制光标（撤销重做后不显示溢出的光标）
+          if (this._cursorVisible && SL >= this.scrollLeft && SL <= this.scrollLeft + this._innerWidth) {
             const dx = this._textX + sl
             const dy = this._selectionY
             const dw = 1
@@ -3144,7 +3208,7 @@ class TextBoxElement extends UIElement {
   hide() {
     if (this.visible) {
       this.visible = false
-      this.input.style.display = 'none'
+      
     }
     return this
   }
@@ -3156,7 +3220,7 @@ class TextBoxElement extends UIElement {
   show() {
     if (!this.visible) {
       this.visible = true
-      this.input.style.display = 'inherit'
+      
       this.resize()
     }
     return this
@@ -3177,32 +3241,35 @@ class TextBoxElement extends UIElement {
 
   /** 计算文本位置 */
   calculateTextPosition() {
+    const scale = Printer.scale
     const printer = this.printer
     const size = printer.sizes[0]
     const vpadding = (this.height - size) / 2
-    const paddingTop = printer.paddingTop
-    const base = this.texture.base
+    const paddingTop = printer.paddingTop / scale
+    const textWidth = this.texture.base.width / scale
+    const textHeight = this.texture.base.height / scale
     // 文本绘制位置
     this._textX = this.x + this.padding
     this._textY = this.y + Math.max(vpadding - paddingTop, 0)
+    this._textWidth = textWidth
     // 文本纹理偏移Y
     this._textShiftY = Math.max(paddingTop - vpadding, 0)
     // 输入框内部宽高
     this._innerWidth = Math.max(this.width - this.padding * 2, 0)
-    this._innerHeight = Math.min(this.height + this.y - this._textY, base.height)
+    this._innerHeight = Math.min(this.height + this.y - this._textY, textHeight)
     // 选中区域Y和高度
     this._selectionY = this.y + Math.max(vpadding, 0)
     this._selectionHeight = Math.min(this.height, size)
     // 如果纹理宽度小于输入框宽度，则根据对齐模式进行偏移
     switch (this.align) {
       case 'center':
-        if (base.width < this._innerWidth) {
-          this._textX += (this._innerWidth - base.width) / 2
+        if (textWidth < this._innerWidth) {
+          this._textX += (this._innerWidth - textWidth) / 2
         }
         break
       case 'right':
-        if (base.width < this._innerWidth) {
-          this._textX += this._innerWidth - base.width + 1
+        if (textWidth < this._innerWidth) {
+          this._textX += this._innerWidth - textWidth + 1
         }
         break
     }
@@ -3264,6 +3331,7 @@ class TextBoxElement extends UIElement {
       // 解除元素和DOM的绑定，让元素被垃圾回收
       // INPUT可能会在历史操作中保留一段时间
       this.input.events = null
+      this.input.target = null
       this.input = null
     }
     return super.destroy()
@@ -3535,10 +3603,6 @@ class DialogBoxElement extends UIElement {
       printer = new Printer(texture)
       printer.sizes[0] = this.size
       // 为各种文字效果预留内边距
-      printer.paddingLeft = 10
-      printer.paddingTop = 50
-      printer.paddingRight = 110
-      printer.paddingBottom = 50
       printer.calculatePadding = Function.empty
       printer.lineSpacing = this.lineSpacing
       printer.letterSpacing = this.letterSpacing
@@ -3559,16 +3623,7 @@ class DialogBoxElement extends UIElement {
     // 如果文本区域发生变化
     if (printer.printWidth !== this.width ||
       printer.printHeight !== this.height) {
-      // 重置打印机并调整纹理大小
-      if (printer.content) printer.reset()
-      const width = Math.min(Math.ceil(this.width + printer.paddingLeft + printer.paddingRight), 16384)
-      const height = Math.min(Math.ceil(this.height + printer.paddingTop + printer.paddingBottom), 16384)
-      printer.texture.resize(width, height)
-      printer.context.resize(width, height)
-      printer.printWidth = this.width
-      printer.printHeight = this.height
-      this._changed = true
-      this.calculateTextPosition()
+      this.updatePrinter()
     }
 
     // 如果文本发生改变，且未被暂停，重新加载打印机内容
@@ -3586,6 +3641,26 @@ class DialogBoxElement extends UIElement {
   // 更新文本内容
   updateTextContent() {
     this.content = this._rawContent
+  }
+
+  // 更新打印机
+  updatePrinter() {
+    const {printer} = this
+    if (printer.content) {
+      printer.reset()
+    }
+    const pl = 10 * Printer.scale
+    const pt = 50 * Printer.scale
+    const pr = 110 * Printer.scale
+    const pb = 50 * Printer.scale
+    const width = Math.min(Math.ceil(this.width * Printer.scale + pl + pr), 16384)
+    const height = Math.min(Math.ceil(this.height * Printer.scale + pt + pb), 16384)
+    printer.setPadding(pl, pt, pr, pb)
+    printer.setPrintArea(this.width, this.height)
+    printer.texture.resize(width, height)
+    printer.context.resize(width, height)
+    this.calculateTextPosition()
+    this._changed = true
   }
 
   /** 重新加载文本内容 */
@@ -3642,8 +3717,8 @@ class DialogBoxElement extends UIElement {
     // 当缓冲字符串不为空时绘制并记录结束位置
     if (printer.buffer !== '') {
       printer.drawBuffer()
-      this.printEndX = this.printer.x
-      this.printEndY = this.printer.y
+      this.printEndX = this.printer.getRawX()
+      this.printEndY = this.printer.getRawY()
     }
   }
 
@@ -3661,9 +3736,9 @@ class DialogBoxElement extends UIElement {
     }
     const printer = this.printer
     const content = printer.content
-    const printWidth = printer.printWidth
-    const printHeight = printer.printHeight
-    const letterSpacing = printer.letterSpacing
+    const printWidth = printer.getScaledPrintWidth()
+    const printHeight = printer.getScaledPrintHeight()
+    const letterSpacing = printer.getScaledLetterSpacing()
     const charWidths = Printer.charWidths
     const length = content.length
     let charIndex = 0
@@ -3790,10 +3865,11 @@ class DialogBoxElement extends UIElement {
   calculateTextPosition() {
     const printer = this.printer
     if (printer !== null) {
-      this._textOuterX = this.x - printer.paddingLeft
-      this._textOuterY = this.y - printer.paddingTop
-      this._textOuterWidth = this.texture.width
-      this._textOuterHeight = this.texture.height
+      const scale = Printer.scale
+      this._textOuterX = this.x - printer.paddingLeft / scale
+      this._textOuterY = this.y - printer.paddingTop / scale
+      this._textOuterWidth = this.texture.width / scale
+      this._textOuterHeight = this.texture.height / scale
     }
   }
 
@@ -4823,6 +4899,11 @@ class ButtonElement extends UIElement {
   // 更新文本内容
   updateTextContent() {
     this.shadowText.updateTextContent()
+  }
+
+  // 更新打印机
+  updatePrinter() {
+    this.shadowText.updatePrinter()
   }
 
   // 更新显示模式

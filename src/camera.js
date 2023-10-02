@@ -24,6 +24,9 @@ const Camera = new class {
   /** 摄像机缩放率 */
   zoom = 1
 
+  /** 摄像机原生缩放率 */
+  rawZoom = 1
+
   /** 摄像机矩形区域宽度 */
   width = 0
 
@@ -75,7 +78,8 @@ const Camera = new class {
     this.target = null
     this.x = 0
     this.y = 0
-    this.zoom = 1
+    this.rawZoom = 1
+    this.updateZoom()
     this.updaters.delete('move')
     this.updaters.delete('zoom')
   }
@@ -164,14 +168,15 @@ const Camera = new class {
     const {updaters} = this
     if (duration > 0) {
       let elapsed = 0
-      const start = this.zoom
+      const start = this.rawZoom
       const easing = Easing.get(easingId)
       // 创建zoom更新器
       updaters.set('zoom', {
         update: deltaTime => {
           elapsed += deltaTime
           const time = easing.map(elapsed / duration)
-          this.zoom = start * (1 - time) + zoom * time
+          this.rawZoom = start * (1 - time) + zoom * time
+          this.updateZoom()
           if (elapsed >= duration) {
             updaters.deleteDelay('zoom')
           }
@@ -180,8 +185,14 @@ const Camera = new class {
     } else {
       // 立即设置摄像机缩放系数
       updaters.deleteDelay('zoom')
-      this.zoom = zoom
+      this.rawZoom = zoom
+      this.updateZoom()
     }
+  }
+
+  // 更新缩放率
+  updateZoom() {
+    this.zoom = this.rawZoom * Scene.scale
   }
 
   /**

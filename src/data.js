@@ -56,7 +56,6 @@ const Data = new class {
       this.loadFile('variables'),
       this.loadFile('plugins'),
       this.loadFile('commands'),
-      this.loadGlobalData()
     ]).then(() => {
       this.createAutotileMap()
       this.createEasingMap()
@@ -684,6 +683,12 @@ const Data = new class {
   saveGlobalData() {
     const data = {
       language: Local.language,
+      resolution: {
+        width: Stage.resolution.width,
+        height: Stage.resolution.height,
+        sceneScale: Scene.scale,
+        uiScale: UI.scale,
+      },
       variables: Variable.saveData(1),
     }
     let shell = Stats.shell
@@ -716,8 +721,22 @@ const Data = new class {
    */
   async loadGlobalData() {
     Game.on('ready', () => {
-      delete Data.globalData
+      delete this.globalData
     })
+    // 创建默认全局数据
+    const createDefaultData = async () => {
+      const config = await this.config
+      return {
+        language: config.localization.default,
+        resolution: {
+          width: config.resolution.width,
+          height: config.resolution.height,
+          sceneScale: 1,
+          uiScale: 1,
+        },
+        variables: {},
+      }
+    }
     let shell = Stats.shell
     if (!Stats.debug && Stats.isMacOS()) {
       shell = 'web'
@@ -730,22 +749,24 @@ const Data = new class {
           const json = await fsp.readFile(path)
           this.globalData = JSON.parse(json)
         } catch (error) {
-          this.globalData = {
-            language: Data.config.localization.default,
-            variables: {},
-          }
+          this.globalData = await createDefaultData()
         }
         break
       case 'web': {
         const key = 'global.save'
-        const data = await IDB.getItem(key)
-        this.globalData = data ?? {
-          language: Data.config.localization.default,
-          variables: {},
-        }
+        this.globalData = await IDB.getItem(key) ?? await createDefaultData()
         break
       }
     }
+  }
+
+  // 加载配置文件
+  async loadConfig() {
+    this.config = await File.get({
+      path: 'Data/config.json',
+      type: 'json',
+      sync: true,
+    })
   }
 }
 

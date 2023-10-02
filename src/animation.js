@@ -1236,6 +1236,8 @@ class ParticleEmitter {
     for (const layer of this.layers) {
       count += layer.updateParticles(deltaTime)
     }
+    // 累计场景中的粒子数量
+    Scene.particleCount += count
     // 返回已激活粒子的数量
     return count
   }

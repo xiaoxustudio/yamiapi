@@ -181,8 +181,8 @@ class Printer {
     this.verticalAlign = 'top'
     this.wordWrap = false
     this.truncate = false
-    this.printWidth = null
-    this.printHeight = null
+    this.printWidth = Infinity
+    this.printHeight = Infinity
     this.fonts = [Printer.font]
     this.styles = ['normal']
     this.weights = ['normal']
@@ -296,17 +296,66 @@ class Printer {
     }
   }
 
+  /** 获取原生的水平位置 */
+  getRawX() {
+    return this.x / Printer.scale
+  }
+
+  /** 获取原生的垂直位置 */
+  getRawY() {
+    return this.y / Printer.scale
+  }
+
+  /** 获取缩放后的字体大小 */
+  getScaledSize() {
+    return this.sizes[0] * Printer.scale
+  }
+
+  /** 获取缩放后的行间距 */
+  getScaledLineSpacing() {
+    return this.lineSpacing * Printer.scale
+  }
+
+  /** 获取缩放后的字间距 */
+  getScaledLetterSpacing() {
+    return this.letterSpacing * Printer.scale
+  }
+
+  /** 获取缩放后的打印宽度 */
+  getScaledPrintWidth() {
+    return this.printWidth * Printer.scale
+  }
+
+  /** 获取缩放后的打印高度 */
+  getScaledPrintHeight() {
+    return this.printHeight * Printer.scale
+  }
+
+  // 设置打印区域
+  setPrintArea(width, height) {
+    this.printWidth = width
+    this.printHeight = height
+  }
+
+  // 设置边距
+  setPadding(pl, pt, pr, pb) {
+    this.paddingLeft = pl
+    this.paddingTop = pt
+    this.paddingRight = pr
+    this.paddingBottom = pb
+  }
+
   /** 更新打印机字体 */
   updateFont() {
     const style = this.styles[0]
     const weight = this.weights[0]
-    const size = this.sizes[0]
+    const size = this.getScaledSize()
     const family = this.fonts.join(', ')
     const context = this.context
     // 设置canvas2d上下文的字体，斜体字内边距，垂直内边距(一些字体可能垂直溢出)
     context.font = `${style} normal ${weight} ${size}px ${family}`
     context.paddingItalic = style === 'italic' ? Math.ceil(size / 4) : 0
-    context.paddingVertical = Math.ceil(size / 10)
+    context.paddingVertical = Math.ceil(size / 5)
     context.size = size
   }
 
@@ -326,7 +375,8 @@ class Printer {
         break
       case 'shadow': {
         // 文字效果：阴影，根据阴影偏移方向来增加内边距
-        const {shadowOffsetX, shadowOffsetY} = effect
+        const shadowOffsetX = effect.shadowOffsetX * Printer.scale
+        const shadowOffsetY = effect.shadowOffsetY * Printer.scale
         const shadowOffsetLeft = Math.max(-shadowOffsetX, 0)
         const shadowOffsetTop = Math.max(-shadowOffsetY, 0)
         const shadowOffsetRight = Math.max(shadowOffsetX, 0)
@@ -339,20 +389,22 @@ class Printer {
       }
       case 'stroke': {
         // 文字效果：描边，上下左右增加描边宽度一半的内边距
-        const halfWidth = Math.ceil(effect.strokeWidth / 2)
+        const halfWidth = Math.ceil(effect.strokeWidth / 2) * Printer.scale
         this.paddingLeft = Math.max(halfWidth - this.x, this.paddingLeft)
         this.paddingTop = Math.max(halfWidth + paddingVertical - this.y, this.paddingTop)
         this.paddingRight = Math.max(halfWidth + paddingItalic, this.paddingRight)
         this.paddingBottom = Math.max(halfWidth + paddingVertical, this.paddingBottom)
         break
       }
-      case 'outline':
+      case 'outline': {
         // 文字效果：轮廓，上下左右增加1px的内边距
-        this.paddingLeft = Math.max(1 - this.x, this.paddingLeft)
-        this.paddingTop = Math.max(1 + paddingVertical - this.y, this.paddingTop)
-        this.paddingRight = Math.max(1 + paddingItalic, this.paddingRight)
-        this.paddingBottom = Math.max(1 + paddingVertical, this.paddingBottom)
+        const offset = Printer.scale
+        this.paddingLeft = Math.max(offset - this.x, this.paddingLeft)
+        this.paddingTop = Math.max(offset + paddingVertical - this.y, this.paddingTop)
+        this.paddingRight = Math.max(offset + paddingItalic, this.paddingRight)
+        this.paddingBottom = Math.max(offset + paddingVertical, this.paddingBottom)
         break
+      }
     }
   }
 
@@ -367,7 +419,7 @@ class Printer {
       return this.context.measureText(string).width
     } else {
       // 垂直方向的文本返回字符串长度 * 字体大小
-      return this.sizes[0] * string.length
+      return this.getScaledSize() * string.length
     }
   }
 
@@ -379,7 +431,7 @@ class Printer {
   measureHeight(string) {
     if (this.horizontal) {
       // 水平方向返回字体大小
-      return this.sizes[0]
+      return this.getScaledSize()
     } else {
       // 垂直方向返回最大的字符宽度
       let height = 0
@@ -455,10 +507,21 @@ class Printer {
     // 排除无效图像宽高
     if (width * height === 0) return
 
+    // 换行模式：宽度溢出时强制换行(但至少绘制一个字符)
+    const horizontal = this.horizontal
+    const imageWidth = width * Printer.scale
+    const imageHeight = height * Printer.scale
+    const letterSpacing = this.getScaledLetterSpacing()
+    if (this.wordWrap && this.breakable && (horizontal
+    ? this.x + Printer.lineWidth + imageWidth > this.getScaledPrintWidth()
+    : this.y + Printer.lineWidth + imageHeight > this.getScaledPrintHeight())) {
+      this.newLine()
+    }
+
     // 创建图像元素
     const imageElement = new ImageElement()
-    imageElement.startX = this.x
-    imageElement.startY = this.y
+    imageElement.startX = this.x / Printer.scale
+    imageElement.startY = this.y / Printer.scale
     imageElement.image = guid
     imageElement.set({
       x: this.x,
@@ -473,32 +536,29 @@ class Printer {
     this.images.push(imageElement)
     this.images.changed = true
 
-    // 设置绘制指令
-    const horizontal = this.horizontal
-    const letterSpacing = this.letterSpacing
+    // 设置打印机指令
     const commands = this.commands
     const command = Printer.fetchCommand()
-    // 设置打印机指令
     commands.push(command)
     command.x = this.x
     command.y = this.y
     command.image = imageElement
-    command.imageWidth = width
-    command.imageHeight = height
-    command.imageSpacing = (horizontal ? width : height) + letterSpacing
+    command.imageWidth = imageWidth
+    command.imageHeight = imageHeight
+    command.imageSpacing = (horizontal ? imageWidth : imageHeight) + letterSpacing
     command.drawingMethod = Function.empty
 
     // 重置属性(通用)
     this.breakable = true
     // 根据不同的文本方向，计算下一个位置、行高、文本区域宽度、文本区域高度
     if (horizontal) {
-      this.x += width + letterSpacing
-      this.lineHeight = Math.max(this.lineHeight, height)
+      this.x += imageWidth + letterSpacing
+      this.lineHeight = Math.max(this.lineHeight, imageHeight)
       this.width = Math.max(this.width, this.x)
       this.height = Math.max(this.height, this.y + this.lineHeight)
     } else {
-      this.y += height + letterSpacing
-      this.lineHeight = Math.max(this.lineHeight, width)
+      this.y += imageHeight + letterSpacing
+      this.lineHeight = Math.max(this.lineHeight, imageWidth)
       this.width = Math.max(this.width, this.x + this.lineHeight)
       this.height = Math.max(this.height, this.y)
     }
@@ -530,8 +590,8 @@ class Printer {
               const command = commands[index++]
               command.x = x - lineHeight
               if (command.image) {
-                command.image.startX = command.x
-                command.image.set({x: command.x})
+                command.image.startX = command.x / Printer.scale
+                command.image.transform.x = command.image.startX
               }
             }
             if (lineX !== undefined) {
@@ -550,8 +610,8 @@ class Printer {
           const command = commands[index++]
           command.x = x - lineHeight
           if (command.image) {
-            command.image.startX = command.x
-            command.image.set({x: command.x})
+            command.image.startX = command.x / Printer.scale
+            command.image.transform.x = command.image.startX
           }
         }
         break
@@ -561,7 +621,8 @@ class Printer {
       // 对水平方向的文本进行水平对齐(不考虑垂直对齐)
       const factor = this.alignmentFactorX
       if (factor !== 0) {
-        const {commands, letterSpacing} = this
+        const commands = this.commands
+        const letterSpacing = this.getScaledLetterSpacing()
         // 打印机文本区域宽度已经减去字间距调整过，加回去
         const lineWidth = this.width + letterSpacing
         let lineX
@@ -582,7 +643,7 @@ class Printer {
           }
           command.x += lineX
           if (command.image) {
-            command.image.startX += lineX
+            command.image.startX += lineX / Printer.scale
             command.image.transform.x = command.image.startX
           }
         }
@@ -591,7 +652,8 @@ class Printer {
       // 对垂直方向的文本进行垂直对齐(不考虑水平对齐)
       const factor = this.alignmentFactorY
       if (factor !== 0) {
-        const {commands, letterSpacing} = this
+        const commands = this.commands
+        const letterSpacing = this.getScaledLetterSpacing()
         // 打印机文本区域高度已经减去字间距调整过，加回去
         const lineWidth = this.height + letterSpacing
         let lineX
@@ -613,7 +675,7 @@ class Printer {
           }
           command.y += lineY
           if (command.image) {
-            command.image.startY += lineY
+            command.image.startY += lineY / Printer.scale
             command.image.transform.y = command.image.startY
           }
         }
@@ -629,7 +691,7 @@ class Printer {
     const horizontal = this.horizontal
     const paddingLeft = this.paddingLeft
     const paddingTop = this.paddingTop
-    const letterSpacing = this.letterSpacing
+    const letterSpacing = this.getScaledLetterSpacing()
     const charWidths = Printer.charWidths
     let charIndex = 0
     for (let i = 0; i < length; i++) {
@@ -670,7 +732,7 @@ class Printer {
     Printer.resetCommands()
   }
 
-  // 检查库存文本是否溢出
+  // 检查包裹文本是否溢出
   isWrapOverflowing() {
     const {content} = this
     const {length} = content
@@ -691,8 +753,8 @@ class Printer {
     return string === ''
     ? false
     : this.horizontal
-    ? this.x + Printer.lineWidth + this.measureWidth(string) > this.printWidth
-    : this.y + Printer.lineWidth + this.measureWidth(string) > this.printHeight
+    ? this.x + Printer.lineWidth + this.measureWidth(string) > this.getScaledPrintWidth()
+    : this.y + Printer.lineWidth + this.measureWidth(string) > this.getScaledPrintHeight()
   }
 
   /** 换行 */
@@ -703,11 +765,11 @@ class Printer {
       if (this.horizontal) {
         // 水平方向换行，垂直位置加上行高和行间距，重置水平位置、行高
         this.x = 0
-        this.y += (this.lineHeight || this.sizes[0]) + this.lineSpacing
+        this.y += (this.lineHeight || this.getScaledSize()) + this.getScaledLineSpacing()
         this.lineHeight = 0
       } else {
         // 垂直方向换行，水平位置加上行高和行间距，重置垂直位置、行高
-        this.x += (this.lineHeight || this.sizes[0]) + this.lineSpacing
+        this.x += (this.lineHeight || this.getScaledSize()) + this.getScaledLineSpacing()
         this.y = 0
         this.lineHeight = 0
       }
@@ -739,9 +801,9 @@ class Printer {
     const wordWrap = this.wordWrap
     const truncate = this.truncate
     const horizontal = this.horizontal
-    const printWidth = this.printWidth
-    const printHeight = this.printHeight
-    const letterSpacing = this.letterSpacing
+    const printWidth = this.getScaledPrintWidth()
+    const printHeight = this.getScaledPrintHeight()
+    const letterSpacing = this.getScaledLetterSpacing()
     const charWidths = Printer.charWidths
     const length = content.length
     let charIndex = 0
@@ -763,7 +825,7 @@ class Printer {
         continue
       }
 
-      // 库存文本溢出
+      // 包裹文本溢出
       if (wordWrap && Printer.wordWrap === 'keep' && this.index >= this.wrapEnd && this.isWrapOverflowing()) {
         this.drawBuffer()
         this.newLine()
@@ -1047,11 +1109,13 @@ class Printer {
   }
 
   // 静态属性
+  static scale = 1
   static font = null
   static size = null
   static color = null
   static effect = null
   static wordWrap = ''
+  static highDefinition = false
   static lineWidth = 0
   static charWidths = null
   static regexps = null
@@ -1144,6 +1208,7 @@ class Printer {
     this.color = Color.parseCSSColor('ffffffff')
     this.effect = {type: 'none'}
     this.wordWrap = text.wordWrap
+    this.highDefinition = text.highDefinition
 
     // 导入字体
     return this.importFonts(text.importedFonts)
@@ -1296,10 +1361,12 @@ class Printer {
     const {font, size, color, effect} = command
     const x = command.x
     const y = command.y + size * 0.85
+    const shadowX = effect.shadowOffsetX * Printer.scale
+    const shadowY = effect.shadowOffsetY * Printer.scale
     context.font = font
     context.fillStyle = effect.color
     context.globalCompositeOperation = 'destination-over'
-    context.fillText(text, x + effect.shadowOffsetX, y + effect.shadowOffsetY)
+    context.fillText(text, x + shadowX, y + shadowY)
     context.fillStyle = color
     context.globalCompositeOperation = 'source-over'
     context.fillText(text, x, y)
@@ -1317,7 +1384,7 @@ class Printer {
     const y = command.y + size * 0.85
     context.font = font
     context.lineJoin = 'round'
-    context.lineWidth = effect.strokeWidth
+    context.lineWidth = effect.strokeWidth * Printer.scale
     context.strokeStyle = effect.color
     context.globalCompositeOperation = 'destination-over'
     context.strokeText(text, x, y)
@@ -1336,13 +1403,39 @@ class Printer {
     const {font, size, color, effect} = command
     const x = command.x
     const y = command.y + size * 0.85
+    const offset = Printer.scale
     context.font = font
     context.fillStyle = effect.color
-    context.fillText(text, x - 1, y)
-    context.fillText(text, x + 1, y)
-    context.fillText(text, x, y - 1)
-    context.fillText(text, x, y + 1)
+    context.fillText(text, x - offset, y)
+    context.fillText(text, x + offset, y)
+    context.fillText(text, x, y - offset)
+    context.fillText(text, x, y + offset)
     context.fillStyle = color
     context.fillText(text, x, y)
+  }
+
+  // 更新缩放率
+  static updateScale() {
+    const HD_SCALE = 4
+    const MAX_SCALE = 4
+    let scale = UI.scale
+    if (this.highDefinition) {
+      scale = Math.max(scale, HD_SCALE)
+    }
+    this.scale = Math.min(scale, MAX_SCALE)
+    this.updateAllPrinters()
+  }
+
+  // 更新所有打印机
+  static updateAllPrinters() {
+    const update = elements => {
+      for (const element of elements) {
+        element.updatePrinter?.()
+        update(element.children)
+      }
+    }
+    if (UI.root instanceof UIElement) {
+      update(UI.root.children)
+    }
   }
 }

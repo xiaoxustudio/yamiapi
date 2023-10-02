@@ -3,11 +3,18 @@
 // ******************************** 舞台对象 ********************************
 
 const Stage = new class {
+  resolution = {
+    width: 0,
+    height: 0,
+  }
+
   /** 初始化舞台 */
   async initialize() {
-    // 加载配置文件
-    Data.config = await window.config
-    delete window.config
+    // 加载配置和全局数据文件
+    await Promise.all([
+      Data.loadConfig(),
+      Data.loadGlobalData(),
+    ])
 
     // 设置网页标题
     const title = document.createElement('title')
@@ -18,11 +25,35 @@ const Stage = new class {
     document.body.style.margin = '0'
     document.body.style.overflow = 'hidden'
 
+    // 调试状态重置分辨率
+    // 部署状态恢复分辨率
+    const resolution = Stats.debug
+    ? Data.config.resolution
+    : Data.globalData.resolution
+    this.resolution.width = resolution.width
+    this.resolution.height = resolution.height
+
     // 调整大小
     this.resize()
 
     // 侦听事件
     window.on('resize', this.resize)
+  }
+
+  /**
+   * 设置分辨率
+   * @param {number} width 分辨率宽度
+   * @param {number} height 分辨率高度
+   * @param {number} sceneScale 场景缩放系数
+   * @param {number} uiScale 界面缩放系数
+   */
+  setResolution(width, height, sceneScale, uiScale) {
+    this.resolution.width = width
+    this.resolution.height = height
+    this.resize()
+    Mouse.resize()
+    Scene.setScale(sceneScale)
+    UI.setScale(uiScale)
   }
 
   /**
@@ -86,7 +117,7 @@ const Stage = new class {
 
   /** 重新调整大小事件 */
   resize() {
-    const resolution = Data.config.resolution
+    const resolution = Stage.resolution
     GL.resize(resolution.width, resolution.height)
     switch (Stats.deviceType) {
       case 'pc':

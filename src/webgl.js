@@ -36,7 +36,7 @@ namespace: {
     stencil: false,
     premultipliedAlpha: false,
     preserveDrawingBuffer: false,
-    desynchronized: true,
+    desynchronized: false,
   }
 
   // 优先使用WebGL2(Win10 DirectX11)
@@ -1492,6 +1492,8 @@ GL.resize = function (width, height) {
     this.viewport(0, 0, width, height)
     this.maskTexture.resize(width, height)
   }
+  // 调整光影纹理
+  this.resizeLightmap()
 }
 
 namespace: {
