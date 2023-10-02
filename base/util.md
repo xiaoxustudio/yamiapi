@@ -1,6 +1,6 @@
 <!--
  * @Author: xuranXYS
- * @LastEditTime: 2023-10-02 15:37:17
+ * @LastEditTime: 2023-10-02 18:56:44
  * @GitHub: www.github.com/xiaoxustudio
  * @WebSite: www.xiaoxustudio.top
  * @Description: By xuranXYS
@@ -108,10 +108,10 @@ window.decrypt = buffer => decrypt(buffer)
 `)()
 ```
 ok，那串base64转码后就是上面的这串代码  
-第一个Function可以看出定义了一个解密函数，如何解密函数创建了一个`Uint8Array`的数组，将buffer存进去  
-写了个循环，0x10是16进制，对应的十进制就是16，所以会循环（0-15）16次  
-然后每个循环都执行在array数组的i位置的数值减去 0x80，对应的十进制是128，所以buffer里面的每个值都会减去128  
-最后返回减去的结果  
+第一个Function可以看出定义了一个解密函数，而解密函数创建了一个`Uint8Array`的数组，将buffer存进去  
+写了个循环，`0x10`是16进制，对应的十进制就是16，所以会循环（0-15）16次  
+然后每个循环都执行在array数组的i位置的数值减去 `0x80`，对应的十进制是128  
+所以buffer里面的每个值都会减去128，最后返回减去的结果  
 第二个Function就是将刚刚定义的解密函数存储到全局（window）上  
   
 然后接着往下，可以看到简单的定义了一个css的扩展，将传进入的链接加个(\\\\)反斜杠
@@ -147,9 +147,9 @@ Object.defineProperty(Event.prototype, 'cmdOrCtrlKey', {
   : function () {return this.ctrlKey}
 })
 ```
-在`EventTarget`添加了继承属性on和off，设置成了`EventTarget.prototype.addEventListener`和removeEventListener  
+在`EventTarget`添加了继承属性on和off，设置成了`EventTarget.prototype.addEventListener`和`removeEventListener`  
 就是改了个名字，用法不变  
-后面哪个是在`Event`的继承上添加了一个`cmdOrCtrlKey`属性，可以get获取  
+后面那个是在`Event`的继承上添加了一个`cmdOrCtrlKey`属性，可以get获取  
 它会判断你是否是MacOS系统，是的话就使用`Event.metaKey`的值，不是的话就使用`Event.ctrlKey`的值  
 你可能会问meta键是什么键？  
 在Mac键盘上，就是命令键，不过这个键在Windows键盘上是Windows键，也就是那个win（图标）键
@@ -177,7 +177,8 @@ const CacheList = new class extends Array {
 }
 ```
 
-还是从`Array`继承并创建了一个类来使用，不过这个的update属性会循环将里面的字符串索引赋值成undifined  
+还是从`Array`继承并创建了一个类来使用  
+不过这个的`update`方法会循环将自身的数值（可能是方法、函数、对象什么的）赋值成undifined  
 借此达到删除数据的目的
 
 再往下看
