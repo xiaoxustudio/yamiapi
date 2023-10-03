@@ -1,6 +1,6 @@
 <!--
  * @Author: xuranXYS
- * @LastEditTime: 2023-10-02 20:29:52
+ * @LastEditTime: 2023-10-03 12:24:22
  * @GitHub: www.github.com/xiaoxustudio
  * @WebSite: www.xiaoxustudio.top
  * @Description: By xuranXYS
@@ -192,4 +192,112 @@ const languages = Data.config.localization.languages
 那么就会将`contents`对应`language`赋值`compile(contents[language])`函数（这里还没运行）  
 所以在指定位置运行一下就是我们本地化后的文本
 
-再往下看有个setLanguage方法，是个异步方法
+再往下看有个setLanguage方法，是个异步方法，我也不知道为啥是个异步方法  
+直到我问了引擎作者  
+![](../img/base/start/fzzt.png)  
+
+好好好，这么玩是吧。（`后期应该会删除`）  
+
+看看源码  
+```js
+// 设置语言
+  async setLanguage(language) {
+    if (this.language !== language) {
+      const languages = Data.config.localization.languages
+      let active = language
+      if (active === 'auto') {
+        active = this.getLanguage()
+      }
+      if (!languages.includes(active)) {
+        active = languages[0] ?? 'en'
+      }
+      if (languages.includes(active)) {
+        try {
+          this.active = active
+          this.language = language
+          this.updateAllTexts()
+          window.dispatchEvent(new window.Event('localize'))
+        } catch (error) {
+          console.error(error)
+        }
+      }
+    }
+  }
+```
+ok，首先看到它判断了我们要设置的语言是否和现在所设置的语言是否不一致，不一致致才进行设置操作  
+如何判断传进来的语言是否是`auto`，是的话就用`this.getLanguage()`方法获取语言并赋值`active`  
+下面if语句就判断`languages`里存在`active`，否则就不执行，如果不存在的话就设置为`languages`的`index`为0的语言  
+如果它也为空，那么就设置成`en`  
+下面具体操作如果在内置的`languages`里存在`active`的语句  
+那么会使用一个`try...catch`语句块来捕获异常  
+首先设置了本地的`active`为传进来的`active`  
+然后设置本地的`languages`为传进来的`languages`（其实这俩用的是一个变量）  
+
+然后执行了下面这两条语句，最下面的`windwos.dispatchEvent`意思是发出发射这个事件  
+我们新建了一个`localize`的窗口事件，所以就发射了它
+```js
+this.updateAllTexts()
+window.dispatchEvent(new window.Event('localize'))
+```
+那`this.updateAllTexts()`是什么意思  
+翻到最后，你会发现这段代码  
+```js
+ // 更新所有文本
+  updateAllTexts() {
+    const update = elements => {
+      for (const element of elements) {
+        element.updateTextContent?.()
+        update(element.children)
+      }
+    }
+    if (UI.root instanceof UIElement) {
+      update(UI.root.children)
+    }
+  }
+```
+是的，它会执行UI控件上面所有的`updateTextContent`方法，包括该控件的子控件
+所以我们大致推断出`updateTextContent`方法是更新文本的函数。  
+
+继续分析，往下是`getLanguage`方法  
+```js
+// 获取语言
+  getLanguage() {
+    const languages = Data.config.localization.languages
+    let language = languages[0] ?? 'en'
+    let matchedWeight = 0
+    let nLanguage = navigator.language
+    // 重映射本地语言
+    if (this.langRemap[nLanguage]) {
+      nLanguage = this.langRemap[nLanguage]
+    }
+    const sKeys = nLanguage.split('-')
+    for (const key of languages) {
+      const dKeys = key.split('-')
+      if (sKeys[0] === dKeys[0]) {
+        let weight = 0
+        for (let sKey of sKeys) {
+          if (dKeys.includes(sKey)) {
+            weight++
+          }
+        }
+        if (matchedWeight < weight) {
+          matchedWeight = weight
+          language = key
+        }
+      }
+    }
+    return language
+  }
+```
+前面没啥可讲的，可以看到重新映射了我们的语言，这用到了我们开头看到的`langRemap`变量  
+可以看到后面分割了`nLanguage`变量，因为这个变量存储了我们的当前环境下的选择的语言  
+那为啥要分割呢，因为我们有些语言是有`-`符号的，比如zh-cn、zh-TW等  
+for循环就是判断两个字符串是否相似，因为下面又分割一个字符串  
+通过`key.split('-')`将当前遍历到的语言标签 key 按照连字符 - 分割成一个字符串数组 dKeys，例如将 'en-US' 划分为 ['en', 'US']。  
+接下来，通过比较 sKeys[0]（给定语言 sKeys 的第一个元素）和 dKeys[0]（当前遍历到的语言标签 key 的第一个元素）是否相等，来判断主要语言代码是否匹配。  
+如果主要语言代码匹配，则进一步比较 sKeys 和 dKeys 中的子语言代码，如果 dKeys 包含了 sKeys 中的某些子语言代码，则增加计数器 weight。  
+最后，在内层循环结束后，将 `matchedWeight`（当前找到的最大匹配权重）与 weight 进行比较。如果当前 weight 大于 `matchedWeight`，则更新 `matchedWeight` 和 `language` 分别为当前的 weight 和 key，表示找到了更匹配的语言。  
+最后返回语言
+
+其他的方法注释也很清楚，那就分析到这。
+
