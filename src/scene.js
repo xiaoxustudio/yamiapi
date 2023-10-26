@@ -75,6 +75,10 @@ const Scene = new class {
    *  @type {SceneSpriteRenderer}
    */ spriteRenderer
 
+  /** 场景直射光渲染器
+   *  @type {SceneSpriteRenderer}
+   */ directLightRenderer
+
   /** 场景是否暂停(累计次数)
    *  @type {number}
    */ paused = 0
@@ -116,13 +120,8 @@ const Scene = new class {
 
   /** 初始化场景管理器 */
   initialize() {
-    // 调试状态重置场景缩放系数
-    // 部署状态恢复场景缩放系数
-    this.setScale(
-      Stats.debug
-    ? Data.config.resolution.sceneScale
-    : Data.globalData.resolution.sceneScale
-    )
+    // 设置初始场景缩放系数
+    this.setScale(Data.globalData.sceneScale)
 
     // 创建精灵渲染器
     this.spriteRenderer = new SceneSpriteRenderer(
@@ -131,6 +130,9 @@ const Scene = new class {
       this.visibleTriggers,
       this.visibleEmitters,
     )
+
+    // 创建直射光渲染器
+    this.directLightRenderer = new SceneDirectLightRenderer()
 
     // 创建默认场景(空场景)
     this.default = new SceneContext('')
@@ -312,7 +314,6 @@ const Scene = new class {
       if (this.binding === scene) {
         this.convert = scene.convert
         this.convert2f = scene.convert2f
-        GL.setContrast(scene.contrast)
         GL.setAmbientLight(scene.ambient)
         scene.initialize()
         scene.enabled = true
@@ -1122,10 +1123,6 @@ class SceneContext {
    *  @type {number}
    */ tileHeight
 
-  /** 场景光照对比度(1-1.5)
-   *  @type {number}
-   */ contrast
-
   /** 场景地形数据(地面:0, 水面:1, 墙块: 2)
    *  @type {SceneTerrainArray}
    */ terrains
@@ -1262,6 +1259,7 @@ class SceneContext {
       this.lights,
       this.parallaxes.backgrounds,
       Scene.spriteRenderer,
+      Scene.directLightRenderer,
       this.parallaxes.foregrounds,
     )
 
@@ -1300,8 +1298,8 @@ class SceneContext {
       scenes[i].path = File.getPathByGUID(sceneIds[i])
     }
     const scene = scenes[0]
-    const width = scene.width
-    const height = scene.height
+    const width = this.savedData?.width ?? scene.width
+    const height = this.savedData?.height ?? scene.height
     const ambient = this.savedData?.ambient ?? scene.ambient
     const terrains = this.savedData?.terrains ?? scene.terrains
     this.data = scene
@@ -1309,7 +1307,6 @@ class SceneContext {
     this.height = height
     this.tileWidth = scene.tileWidth
     this.tileHeight = scene.tileHeight
-    this.contrast = scene.contrast
     this.ambient = ambient
     this.terrains = Codec.decodeTerrains(this, terrains, width, height)
     this.terrainObstacles = new Uint8Array(this.terrains)
@@ -1840,6 +1837,8 @@ class SceneContext {
       id: this.id,
       subscenes: this.subscenes.map(scene => scene.id),
       index: Scene.contexts.indexOf(this),
+      width: this.width,
+      height: this.height,
       ambient: this.ambient,
       terrains: this.terrains.saveData(),
       actors: this.actors.saveData(),
@@ -4814,13 +4813,14 @@ class SceneLightManager {
     const ambientRed = ambient.red / 255
     const ambientGreen = ambient.green / 255
     const ambientBlue = ambient.blue / 255
-    // 获取光照纹理裁剪区域
-    const cx = gl.lightmap.clipX
-    const cy = gl.lightmap.clipY
-    const cw = gl.lightmap.clipWidth
-    const ch = gl.lightmap.clipHeight
-    // 绑定光照纹理FBO
-    gl.bindFBO(gl.lightmap.fbo)
+    const ambientDirect = ambient.direct
+    // 获取反射光纹理裁剪区域
+    const cx = gl.reflectedLightMap.clipX
+    const cy = gl.reflectedLightMap.clipY
+    const cw = gl.reflectedLightMap.clipWidth
+    const ch = gl.reflectedLightMap.clipHeight
+    // 绑定反射光纹理FBO
+    gl.bindFBO(gl.reflectedLightMap.fbo)
     gl.setViewport(cx, cy, cw, ch)
     gl.clearColor(ambientRed, ambientGreen, ambientBlue, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
@@ -4877,7 +4877,7 @@ class SceneLightManager {
       }
     }
 
-    // 绘制光源
+    // 绘制反射光
     if (qi !== 0) {
       const projMatrix = Matrix.instance.project(
         gl.flip,
@@ -4888,11 +4888,41 @@ class SceneLightManager {
       .scale(tw, th)
       // 按队列顺序绘制所有可见光源
       for (let i = 0; i < qi; i += 2) {
-        groups[queue[i]][queue[i + 1]].draw(projMatrix)
+        groups[queue[i]][queue[i + 1]].draw(projMatrix, 1)
       }
     }
-    // 重置视口并解除FBO绑定
+    // 重置视口并
     gl.resetViewport()
+    // 计算直射光颜色
+    const directRed = ambientRed * ambientDirect
+    const directGreen = ambientGreen * ambientDirect
+    const directBlue = ambientBlue * ambientDirect
+    // 避免使用直射光纹理
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    // 绑定直射光纹理FBO
+    gl.bindFBO(gl.directLightMap.fbo)
+    gl.clearColor(directRed, directGreen, directBlue, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    // 绘制直射光
+    if (qi !== 0) {
+      const sl = Camera.scrollLeft
+      const st = Camera.scrollTop
+      const sr = Camera.scrollRight
+      const sb = Camera.scrollBottom
+      const projMatrix = Matrix.instance.project(
+        gl.flip,
+        sr - sl,
+        sb - st,
+      )
+      .translate(-sl, -st)
+      .scale(tw, th)
+      // 按队列顺序绘制所有可见光源
+      for (let i = 0; i < qi; i += 2) {
+        const light = groups[queue[i]][queue[i + 1]]
+        light.draw(projMatrix, light.direct)
+      }
+    }
+    // 解除FBO绑定
     gl.unbindFBO()
   }
 
@@ -5000,6 +5030,10 @@ class SceneLight {
    *  @type {number}
    */ blue
 
+  /** 直射率(0-1)
+   *  @type {number}
+   */ direct
+
   /** 区域光源锚点水平偏移
    *  @type {number}
    */ anchorOffsetX
@@ -5092,6 +5126,7 @@ class SceneLight {
     this.red = light.red
     this.green = light.green
     this.blue = light.blue
+    this.direct = light.direct
     this.updaters = new ModuleList()
     this.events = light.events
     this.script = Script.create(this, light.scripts)
@@ -5206,21 +5241,23 @@ class SceneLight {
   /**
    * 绘制场景光源
    * @param {Matrix} projMatrix 投影矩阵
+   * @param {number} opacity 不透明度
    */
-  draw(projMatrix) {
+  draw(projMatrix, opacity) {
     switch (this.type) {
       case 'point':
-        return this.drawPointLight(projMatrix)
+        return this.drawPointLight(projMatrix, opacity)
       case 'area':
-        return this.drawAreaLight(projMatrix)
+        return this.drawAreaLight(projMatrix, opacity)
     }
   }
 
   /**
    * 绘制点光源
    * @param {Matrix} projMatrix 投影矩阵
+   * @param {number} opacity 不透明度
    */
-  drawPointLight(projMatrix) {
+  drawPointLight(projMatrix, opacity) {
     const gl = GL
     const vertices = gl.arrays[0].float32
     const r = this.range / 2
@@ -5248,9 +5285,9 @@ class SceneLight {
     vertices[15] = 0
     gl.blend = this.blend
     const program = gl.lightProgram.use()
-    const red = this.red / 255
-    const green = this.green / 255
-    const blue = this.blue / 255
+    const red = this.red * opacity / 255
+    const green = this.green * opacity / 255
+    const blue = this.blue * opacity / 255
     const intensity = this.intensity
     gl.bindVertexArray(program.vao.a110)
     gl.vertexAttrib4f(program.a_LightColor, red, green, blue, intensity)
@@ -5263,8 +5300,9 @@ class SceneLight {
   /**
    * 绘制区域光源
    * @param {Matrix} projMatrix 投影矩阵
+   * @param {number} opacity 不透明度
    */
-  drawAreaLight(projMatrix) {
+  drawAreaLight(projMatrix, opacity) {
     const texture = this.texture
     if (texture?.complete === false) {
       return
@@ -5296,9 +5334,9 @@ class SceneLight {
     gl.blend = this.blend
     const program = gl.lightProgram.use()
     const mode = texture !== null ? 1 : 2
-    const red = this.red / 255
-    const green = this.green / 255
-    const blue = this.blue / 255
+    const red = this.red * opacity / 255
+    const green = this.green * opacity / 255
+    const blue = this.blue * opacity / 255
     const matrix = gl.matrix
     .set(projMatrix)
     .rotateAt(ox, oy, this._angle)
@@ -5539,6 +5577,7 @@ class SceneLight {
     red: 255,
     green: 255,
     blue: 255,
+    direct: 0,
     events: {},
     scripts: [],
   }
@@ -5874,7 +5913,7 @@ class SceneSpriteRenderer {
   render() {
     const {max, min, floor, ceil, round} = Math
     const gl = GL
-    const lightmap = gl.lightmap
+    const lightmap = gl.reflectedLightMap
     const scene = Scene.binding
     const tw = scene.tileWidth
     const th = scene.tileHeight
@@ -6208,6 +6247,16 @@ class SceneSpriteRenderer {
       gl.batchRenderer.unbindProgram()
       gl.blend = 'normal'
     }
+  }
+}
+
+// ******************************** 场景直射光渲染器类 ********************************
+
+class SceneDirectLightRenderer {
+  // 渲染
+  render() {
+    GL.blend = 'additive'
+    GL.drawImage(GL.directLightMap, 0, 0, GL.width, GL.height)
   }
 }
 

@@ -308,7 +308,7 @@ class Printer {
 
   /** 获取缩放后的字体大小 */
   getScaledSize() {
-    return this.sizes[0] * Printer.scale
+    return this.sizes[0] * Printer.scale * Printer.sizeScale
   }
 
   /** 获取缩放后的行间距 */
@@ -368,7 +368,7 @@ class Printer {
     switch (effect.type) {
       case 'none':
         // 文字效果：无，负数x/y将会增加左/上的内边距
-        this.paddingLeft = Math.max(-this.x, this.paddingLeft)
+        this.paddingLeft = Math.max(paddingItalic / 4 - this.x, this.paddingLeft)
         this.paddingTop = Math.max(paddingVertical - this.y, this.paddingTop)
         this.paddingRight = Math.max(paddingItalic, this.paddingRight)
         this.paddingBottom = Math.max(paddingVertical, this.paddingBottom)
@@ -381,7 +381,7 @@ class Printer {
         const shadowOffsetTop = Math.max(-shadowOffsetY, 0)
         const shadowOffsetRight = Math.max(shadowOffsetX, 0)
         const shadowOffsetBottom = Math.max(shadowOffsetY, 0)
-        this.paddingLeft = Math.max(shadowOffsetLeft - this.x, this.paddingLeft)
+        this.paddingLeft = Math.max(shadowOffsetLeft + paddingItalic / 4 - this.x, this.paddingLeft)
         this.paddingTop = Math.max(shadowOffsetTop + paddingVertical - this.y, this.paddingTop)
         this.paddingRight = Math.max(shadowOffsetRight + paddingItalic, this.paddingRight)
         this.paddingBottom = Math.max(shadowOffsetBottom + paddingVertical, this.paddingBottom)
@@ -390,7 +390,7 @@ class Printer {
       case 'stroke': {
         // 文字效果：描边，上下左右增加描边宽度一半的内边距
         const halfWidth = Math.ceil(effect.strokeWidth / 2) * Printer.scale
-        this.paddingLeft = Math.max(halfWidth - this.x, this.paddingLeft)
+        this.paddingLeft = Math.max(halfWidth + paddingItalic / 4 - this.x, this.paddingLeft)
         this.paddingTop = Math.max(halfWidth + paddingVertical - this.y, this.paddingTop)
         this.paddingRight = Math.max(halfWidth + paddingItalic, this.paddingRight)
         this.paddingBottom = Math.max(halfWidth + paddingVertical, this.paddingBottom)
@@ -399,7 +399,7 @@ class Printer {
       case 'outline': {
         // 文字效果：轮廓，上下左右增加1px的内边距
         const offset = Printer.scale
-        this.paddingLeft = Math.max(offset - this.x, this.paddingLeft)
+        this.paddingLeft = Math.max(offset + paddingItalic / 4 - this.x, this.paddingLeft)
         this.paddingTop = Math.max(offset + paddingVertical - this.y, this.paddingTop)
         this.paddingRight = Math.max(offset + paddingItalic, this.paddingRight)
         this.paddingBottom = Math.max(offset + paddingVertical, this.paddingBottom)
@@ -520,12 +520,12 @@ class Printer {
 
     // 创建图像元素
     const imageElement = new ImageElement()
-    imageElement.startX = this.x / Printer.scale
-    imageElement.startY = this.y / Printer.scale
+    imageElement.startX = this.getRawX()
+    imageElement.startY = this.getRawY()
     imageElement.image = guid
     imageElement.set({
-      x: this.x,
-      y: this.y,
+      x: imageElement.startX,
+      y: imageElement.startY,
       width: width,
       height: height,
     })
@@ -1110,11 +1110,13 @@ class Printer {
 
   // 静态属性
   static scale = 1
-  static font = null
-  static size = null
-  static color = null
-  static effect = null
-  static wordWrap = ''
+  static sizeScale = 1
+  static languageFont = ''
+  static font = ''
+  static size = 0
+  static color = 0
+  static effect = {type: 'none'}
+  static wordWrap = 'break'
   static highDefinition = false
   static lineWidth = 0
   static charWidths = null
@@ -1123,6 +1125,7 @@ class Printer {
   static commandCount = null
   static commandMaximum = null
   static drawingMethods = null
+  static fontFaces = {}
   static imported = []
   static importing = []
 
@@ -1203,11 +1206,10 @@ class Printer {
   static loadDefault() {
     // 设置打印机默认上下文属性
     const text = Data.config.text
-    this.font = text.fontFamily || 'sans-serif'
+    this.updateFont()
     this.size = 16
     this.color = Color.parseCSSColor('ffffffff')
     this.effect = {type: 'none'}
-    this.wordWrap = text.wordWrap
     this.highDefinition = text.highDefinition
 
     // 导入字体
@@ -1222,6 +1224,7 @@ class Printer {
   static importFonts(imports) {
     const imported = this.imported
     const importing = this.importing
+    const fontFaces = this.fontFaces
     const regexp = /([^/]+)\.\S+\.\S+$/
     const promises = []
     for (const guid of imports) {
@@ -1234,6 +1237,10 @@ class Printer {
         continue
       }
       imported.push(name)
+      if (guid in fontFaces) {
+        document.fonts.add(fontFaces[guid])
+        continue
+      }
       importing.push(name)
       promises.push(File.get({
         path: path,
@@ -1243,8 +1250,11 @@ class Printer {
         buffer => {
           new FontFace(name, buffer).load().then(
             font => {
+              fontFaces[guid] = font
               importing.remove(name)
               document.fonts.add(font)
+              font.guid = guid
+              font.name = name
             },
             error => {
               importing.remove(name)
@@ -1414,6 +1424,59 @@ class Printer {
     context.fillText(text, x, y)
   }
 
+  // 设置语言字体
+  static setLanguageFont(guid) {
+    if (this.languageFont !== guid) {
+      this.deleteFont(this.languageFont)
+      this.languageFont = guid
+      this.updateFont()
+    }
+  }
+
+  // 更新字体
+  static updateFont() {
+    const fontFamily = Data.config.text.fontFamily || 'sans-serif'
+    const guid = this.languageFont
+    if (guid === '') {
+      this.font = fontFamily
+    } else {
+      const meta = Data.manifest.guidMap[guid]
+      if (!meta) return
+      const name = meta.name ?? meta.path.match(/([^/]+)\.\S+\.\S+$/)?.[1]
+      if (name) {
+        this.importFonts([guid]).then(() => {
+          this.font = `${name}, ${fontFamily}`
+          this.updateAllPrinters()
+        })
+      }
+    }
+  }
+
+  // 删除指定的字体
+  static deleteFont(guid) {
+    const fonts = document.fonts
+    for (const font of fonts) {
+      if (font.guid === guid) {
+        fonts.delete(font)
+        this.imported.remove(font.name)
+        break
+      }
+    }
+  }
+
+  // 生成字体家族
+  static generateFontFamily(firstFont) {
+    return firstFont ? `${firstFont}, ${this.font}` : this.font
+  }
+
+  // 设置文字缩放系数
+  static setSizeScale(scale) {
+    if (this.sizeScale !== scale) {
+      this.sizeScale = scale
+      this.updateAllPrinters()
+    }
+  }
+
   // 更新缩放率
   static updateScale() {
     const HD_SCALE = 4
@@ -1426,10 +1489,24 @@ class Printer {
     this.updateAllPrinters()
   }
 
+  // 设置自动换行
+  // break: 自动换行时强制断开，适用于中文、日语、韩语
+  // keep: 自动换行时保持完整的单词提前换行，适用于英语等
+  static setWordWrap(wordWrap) {
+    if (this.wordWrap !== wordWrap) {
+      this.wordWrap = wordWrap
+      this.updateAllPrinters()
+    }
+  }
+
   // 更新所有打印机
   static updateAllPrinters() {
     const update = elements => {
       for (const element of elements) {
+        // 更新字体
+        if ('font' in element) {
+          element.font = element.font
+        }
         element.updatePrinter?.()
         update(element.children)
       }
@@ -1437,5 +1514,7 @@ class Printer {
     if (UI.root instanceof UIElement) {
       update(UI.root.children)
     }
+    // 发送rescale事件
+    window.dispatchEvent(new window.Event('rescale'))
   }
 }

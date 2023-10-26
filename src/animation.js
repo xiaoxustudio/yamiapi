@@ -11,6 +11,10 @@ class Animation {
    *  @type {boolean}
    */ paused
 
+  /** 结束播放
+   *  @type {boolean}
+   */ ended
+
   /** 动画位置对象
    *  @type {Object}
    */ position
@@ -162,6 +166,7 @@ class Animation {
   constructor(data) {
     this.visible = true
     this.paused = false
+    this.ended = false
     this.position = {x: 0, y: 0}
     this.index = 0
     this.length = 0
@@ -207,11 +212,13 @@ class Animation {
       this.cycleIndex++
     }
     this.index = index
+    this.ended = false
   }
 
   /** 重新开始播放 */
   restart() {
     this.index = 0
+    this.ended = false
   }
 
   /**
@@ -253,6 +260,7 @@ class Animation {
       this.length = dirCase.length
       this.loopStart = dirCase.loopStart
       this.cycleIndex = 0
+      this.ended = false
     }
   }
 
@@ -436,22 +444,26 @@ class Animation {
    * @param {number} deltaTime 增量时间(毫秒)
    */
   update(deltaTime) {
-    this.existParticles = false
-    if (this.paused) return
     deltaTime *= this.speed
-    if (this.length !== 0) {
-      // 递增动画帧索引
-      this.index += deltaTime / Animation.step
-      // 如果动画播放结束
-      if (this.index >= this.length) {
-        if (this.motion.loop) {
-          // 如果动作是循环的，重新开始
-          this.index = this.index % this.length + this.loopStart
-          this.cycleIndex++
-        } else {
-          // 否则设为尾帧索引，执行结束回调
-          this.index = this.length - 1
-          this.finish()
+    if (this.paused === false && this.ended === false) {
+      this.existParticles = false
+      if (this.length !== 0) {
+        // 递增动画帧索引
+        this.index += deltaTime / Animation.step
+        // 如果动画播放结束
+        if (this.index >= this.length) {
+          if (this.motion.loop) {
+            // 如果动作是循环的，重新开始
+            this.index = this.index % this.length + this.loopStart
+            this.cycleIndex++
+          } else {
+            // 否则设为尾帧索引，执行结束回调
+            this.index = this.length - 1
+            this.ended = true
+            this.finish()
+            // 临时用于播放结束后回调（会修改）
+            this.end?.()
+          }
         }
       }
     }

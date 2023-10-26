@@ -25,13 +25,9 @@ const Stage = new class {
     document.body.style.margin = '0'
     document.body.style.overflow = 'hidden'
 
-    // 调试状态重置分辨率
-    // 部署状态恢复分辨率
-    const resolution = Stats.debug
-    ? Data.config.resolution
-    : Data.globalData.resolution
-    this.resolution.width = resolution.width
-    this.resolution.height = resolution.height
+    // 设置初始分辨率
+    this.resolution.width = Data.globalData.canvasWidth
+    this.resolution.height = Data.globalData.canvasHeight
 
     // 调整大小
     this.resize()

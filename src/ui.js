@@ -64,13 +64,8 @@ const UI = new class {
     this.root = new RootElement()
     this.root.resize()
 
-    // 调试状态重置界面缩放系数
-    // 部署状态恢复界面缩放系数
-    this.setScale(
-      Stats.debug
-    ? Data.config.resolution.uiScale
-    : Data.globalData.resolution.uiScale
-    )
+    // 设置初始界面缩放系数
+    this.setScale(Data.globalData.uiScale)
 
     // 引用元素管理器
     this.manager = UIElementManager
@@ -2271,12 +2266,10 @@ class TextElement extends UIElement {
   }
 
   set font(value) {
-    if (this._font !== value) {
-      this._font = value
-      if (this.printer) {
-        this.printer.reset()
-        this.printer.fonts[0] = value || Printer.font
-      }
+    this._font = value
+    if (this.printer) {
+      this.printer.reset()
+      this.printer.fonts[0] = Printer.generateFontFamily(value)
     }
   }
 
@@ -2420,6 +2413,7 @@ class TextElement extends UIElement {
   // 更新打印机
   updatePrinter() {
     const {printer} = this
+    if (!printer) return
     // 重置打印机
     if (printer.content) {
       printer.reset()
@@ -2758,12 +2752,10 @@ class TextBoxElement extends UIElement {
   }
 
   set font(value) {
-    if (this._font !== value) {
-      this._font = value
-      if (this.printer) {
-        this.printer.reset()
-        this.printer.fonts[0] = value || Printer.font
-      }
+    this._font = value
+    if (this.printer) {
+      this.printer.reset()
+      this.printer.fonts[0] = Printer.generateFontFamily(value)
     }
   }
 
@@ -3090,6 +3082,7 @@ class TextBoxElement extends UIElement {
   // 更新打印机
   updatePrinter() {
     const {printer} = this
+    if (!printer) return
     // 重置打印机
     if (printer.content) {
       printer.reset()
@@ -3530,12 +3523,10 @@ class DialogBoxElement extends UIElement {
   }
 
   set font(value) {
-    if (this._font !== value) {
-      this._font = value
-      if (this.printer) {
-        this.reload()
-        this.printer.fonts[0] = value || Printer.font
-      }
+    this._font = value
+    if (this.printer) {
+      this.reload()
+      this.printer.fonts[0] = Printer.generateFontFamily(value)
     }
   }
 
@@ -3615,8 +3606,14 @@ class DialogBoxElement extends UIElement {
       printer.truncate = true
       this.texture = texture
       this.printer = printer
+      // 重写打印机加载图像方法（记录打印结束位置）
+      printer.loadImage = (guid, clip, width, height) => {
+        Printer.prototype.loadImage.call(printer, guid, clip, width, height)
+        this.printEndX = printer.getRawX()
+        this.printEndY = printer.getRawY()
+      }
       // 删除打印机恢复纹理回调函数
-      // 改用默认的恢复普通纹理方法(不完美)
+      // 改用默认的恢复普通纹理方法（不完美）
       delete texture.base.onRestore
     }
 
@@ -3646,10 +3643,11 @@ class DialogBoxElement extends UIElement {
   // 更新打印机
   updatePrinter() {
     const {printer} = this
+    if (!printer) return
     if (printer.content) {
       printer.reset()
     }
-    const pl = 10 * Printer.scale
+    const pl = 20 * Printer.scale
     const pt = 50 * Printer.scale
     const pr = 110 * Printer.scale
     const pb = 50 * Printer.scale
@@ -3708,6 +3706,7 @@ class DialogBoxElement extends UIElement {
       this.printer.x = 0
       this.printer.y = 0
       this.printer.context.clear()
+      this.printer.images.length = 0
     }
   }
 
@@ -5127,6 +5126,13 @@ class AnimationElement extends UIElement {
         this.player.rotatable = this.rotatable
         this.player.setAngle(Math.radians(this.angle))
         this.player.goto(this.initialFrame)
+        this.player.end = () => {
+          // 渲染时触发的结束事件
+          // 因此推迟到下一帧执行
+          Callback.push(() => {
+            this.emit('ended', false)
+          })
+        }
       }
     }
   }
@@ -5315,6 +5321,7 @@ class VideoElement extends UIElement {
   // 默认视频元素数据
   static defaultData = {
     video: '',
+    playbackRate: 1,
     loop: false,
     flip: 'none',
     blend: 'normal',
@@ -5329,19 +5336,20 @@ class VideoElement extends UIElement {
     // 创建影子视频元素
     this.player = document.createElement('video')
     this.state = 'paused'
+    this.playbackRate = data.playbackRate
     this.video = data.video
     this.loop = data.loop
     this.flip = data.flip
     this.blend = data.blend
     this.texture = new Texture()
-    // 开始播放时调整纹理大小
-    this.player.on('playing', () => {
-      this.texture.resize(this.player.videoWidth, this.player.videoHeight)
-    })
+    this.texture.complete = false
     // 视频播放状态侦听器
     this.player.on('play', () => {this.state = 'playing'})
     this.player.on('pause', () => {this.state = 'paused'})
-    this.player.on('ended', () => {this.state = 'ended'})
+    this.player.on('ended', () => {
+      this.state = 'ended'
+      this.emit('ended', false)
+    })
     // 视频播放错误时暂停
     this.player.on('error', () => {this.player.pause()})
     // 页面不可见时暂停播放
@@ -5374,8 +5382,23 @@ class VideoElement extends UIElement {
     if (player.guid !== value) {
       player.guid = value
       player.src = File.getPathByGUID(value)
-      player.play().catch(error => {})
+      // 重新加载视频将会重置播放速度
+      player.playbackRate = this.playbackRate
+      player.play().catch(error => {
+        this.texture.complete = false
+        this.texture.resize(0, 0)
+      })
     }
+  }
+
+  /** 视频播放速度 */
+  get playbackRate() {
+    return this._playbackRate
+  }
+
+  set playbackRate(value) {
+    this._playbackRate = value
+    this.player.playbackRate = value
   }
 
   /** 视频循环播放开关 */
@@ -5389,11 +5412,18 @@ class VideoElement extends UIElement {
 
   /** 创建视频帧更新器 */
   createVideoFrameUpdater() {
-    const {player, texture: {base}} = this
+    const {player, texture} = this
     if ('requestVideoFrameCallback' in player) {
       // 优先使用请求视频帧回调的方法
       const update = () => {
-        GL.bindTexture(GL.TEXTURE_2D, base.glTexture)
+        if (texture.destroyed) return
+        if (!texture.complete) {
+          texture.complete = true
+        }
+        if (texture.width !== player.videoWidth || texture.height !== player.videoHeight) {
+          texture.resize(player.videoWidth, player.videoHeight)
+        }
+        GL.bindTexture(GL.TEXTURE_2D, texture.base.glTexture)
         GL.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, GL.RGBA, GL.UNSIGNED_BYTE, player)
         player.requestVideoFrameCallback(update)
       }
@@ -5410,7 +5440,14 @@ class VideoElement extends UIElement {
             elapsed %= interval
             // 当视频已加载时，上传视频画面到纹理
             if (player.readyState === 4) {
-              GL.bindTexture(GL.TEXTURE_2D, base.glTexture)
+              if (texture.destroyed) return
+              if (!texture.complete) {
+                texture.complete = true
+              }
+              if (texture.width !== player.videoWidth || texture.height !== player.videoHeight) {
+                texture.resize(player.videoWidth, player.videoHeight)
+              }
+              GL.bindTexture(GL.TEXTURE_2D, texture.base.glTexture)
               GL.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, GL.RGBA, GL.UNSIGNED_BYTE, player)
             }
           }
@@ -5452,10 +5489,36 @@ class VideoElement extends UIElement {
     if (this.visible === false) {
       return
     }
-    GL.alpha = this.opacity
-    GL.blend = this.blend
-    GL.matrix.set(this.matrix)
-    GL.drawImage(this.texture, this.x, this.y, this.width, this.height)
+    const {texture} = this
+    if (texture.complete) {
+      let dx = this.x
+      let dy = this.y
+      let dw = this.width
+      let dh = this.height
+      // 视频翻转模式
+      switch (this.flip) {
+        case 'none':
+          break
+        case 'horizontal':
+          dx += dw
+          dw *= -1
+          break
+        case 'vertical':
+          dy += dh
+          dh *= -1
+          break
+        case 'both':
+          dx += dw
+          dy += dh
+          dw *= -1
+          dh *= -1
+          break
+      }
+      GL.alpha = this.opacity
+      GL.blend = this.blend
+      GL.matrix.set(this.matrix)
+      GL.drawImage(texture, dx, dy, dw, dh)
+    }
     this.drawChildren()
   }
 

@@ -63,6 +63,15 @@ const EventManager = new class {
     gamepadbuttonrelease: [],
     gamepadleftstickchange: [],
     gamepadrightstickchange: [],
+    skilladd: [],
+    skillremove: [],
+    stateadd: [],
+    stateremove: [],
+    equipmentadd: [],
+    equipmentremove: [],
+    equipmentgain: [],
+    itemgain: [],
+    moneygain: [],
   }
 
   // 已激活事件列表
@@ -77,7 +86,7 @@ const EventManager = new class {
     delete Data.events
 
     // 编译事件指令
-    for (const {id, path, enabled, type, commands} of events) {
+    for (const {id, path, enabled, priority, type, commands} of events) {
       commands.path = '@ ' + path
       const cmds = Command.compile(commands)
       let parent = typeMap[type]
@@ -86,7 +95,7 @@ const EventManager = new class {
       }
       cmds.default = enabled
       cmds.enabled = enabled
-      cmds.priority = false
+      cmds.priority = priority
       cmds.parent = parent
       parent.push(cmds)
       guidMap[id] = cmds
@@ -101,17 +110,17 @@ const EventManager = new class {
 
     // 侦听事件
     Scene.on('initialize', () => this.callSpecialEvent('initScene'))
-    Scene.on('keydown', () => this.emit('keydown'))
-    Scene.on('keyup', () => this.emit('keyup'))
-    Scene.on('mousedown', () => this.emit('mousedown'))
-    Scene.on('mouseup', () => this.emit('mouseup'))
-    Scene.on('mousemove', () => this.emit('mousemove'))
-    Scene.on('doubleclick', () => this.emit('doubleclick'))
-    Scene.on('wheel', () => this.emit('wheel'))
-    Scene.on('gamepadbuttonpress', () => this.emit('gamepadbuttonpress'))
-    Scene.on('gamepadbuttonrelease', () => this.emit('gamepadbuttonrelease'))
-    Scene.on('gamepadleftstickchange', () => this.emit('gamepadleftstickchange'))
-    Scene.on('gamepadrightstickchange', () => this.emit('gamepadrightstickchange'))
+    Scene.on('keydown', () => this.emit('keydown', false))
+    Scene.on('keyup', () => this.emit('keyup', false))
+    Scene.on('mousedown', () => this.emit('mousedown', false))
+    Scene.on('mouseup', () => this.emit('mouseup', false))
+    Scene.on('mousemove', () => this.emit('mousemove', false))
+    Scene.on('doubleclick', () => this.emit('doubleclick', false))
+    Scene.on('wheel', () => this.emit('wheel', false))
+    Scene.on('gamepadbuttonpress', () => this.emit('gamepadbuttonpress', false))
+    Scene.on('gamepadbuttonrelease', () => this.emit('gamepadbuttonrelease', false))
+    Scene.on('gamepadleftstickchange', () => this.emit('gamepadleftstickchange', false))
+    Scene.on('gamepadrightstickchange', () => this.emit('gamepadrightstickchange', false))
     Input.on('keydown', () => this.emit('keydown', true), true)
     Input.on('keyup', () => this.emit('keyup', true), true)
     Input.on('mousedown', () => this.emit('mousedown', true), true)
@@ -175,12 +184,17 @@ const EventManager = new class {
    * 发送全局事件
    * @param {string} type 全局事件类型
    * @param {boolean} priority 是不是优先事件
+   * @param {Object} [options] 传递事件上下文属性
    */
-  emit(type, priority = false) {
+  emit(type, priority = null, options) {
     for (const commands of this.typeMap[type] ?? []) {
-      if (commands.enabled && commands.priority === priority) {
+      if (commands.enabled && (priority === null ||
+        commands.priority === priority)) {
         const event = new EventHandler(commands)
-        event.priority = priority
+        // 添加传递的数据到事件上下文
+        if (options) Object.assign(event, options)
+        // 设置事件优先级
+        event.priority = commands.priority
         EventHandler.call(event)
         // 如果事件停止传递，跳出
         if (Input.bubbles.get() === false) {

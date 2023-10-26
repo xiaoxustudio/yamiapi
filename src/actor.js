@@ -721,6 +721,7 @@ class Actor {
       this.loadAttributes()
       this.loadSkills()
       this.loadEquipments()
+      this.loadInventory()
       this.emit('create')
     }
 
@@ -785,6 +786,38 @@ class Actor {
       const slot = Enum.get(equipment.slot)
       if (data !== undefined && slot !== undefined) {
         equipmentManager.set(slot.value, new Equipment(data))
+      }
+    }
+  }
+
+  /** 加载初始角色库存 */
+  loadInventory() {
+    const inventory = this.inventory
+    const list = this.data.inventory
+    const length = list.length
+    // 创建初始物品和装备，避免触发获得事件
+    for (let i = 0; i < length; i++) {
+      const goods = list[i]
+      switch (goods.type) {
+        case 'item': {
+          const data = Data.items[goods.id]
+          if (data) {
+            const item = new Item(data)
+            inventory.insert(item)
+            item.increase(goods.quantity)
+          }
+          continue
+        }
+        case 'equipment': {
+          const data = Data.equipments[goods.id]
+          if (data) {
+            inventory.insert(new Equipment(data))
+          }
+          continue
+        }
+        case 'money':
+          inventory.money += goods.money
+          continue
       }
     }
   }
@@ -1946,8 +1979,18 @@ class Skill {
    * @returns {EventHandler|undefined}
    */
   callEvent(type) {
-    const commands = this.events[type]
     const actor = this.parent?.actor
+    const commands = this.events[type]
+    switch (type) {
+      case 'skilladd':
+      case 'skillremove':
+        EventManager.emit(type, null, {
+          triggerSkill: this,
+          triggerActor: actor,
+          casterActor: actor,
+        })
+        break
+    }
     if (commands) {
       const event = new EventHandler(commands)
       event.triggerSkill = this
@@ -2304,15 +2347,24 @@ class State {
    * @returns {EventHandler|undefined}
    */
   callEvent(type) {
-    const commands = this.events[type]
     const actor = this.parent?.actor
+    const caster = this.caster ?? undefined
+    const commands = this.events[type]
+    switch (type) {
+      case 'stateadd':
+      case 'stateremove':
+        EventManager.emit(type, null, {
+          triggerState: this,
+          triggerActor: actor,
+          casterActor: caster,
+        })
+        break
+    }
     if (commands) {
       const event = new EventHandler(commands)
-      if (this.caster) {
-        event.casterActor = this.caster
-      }
-      event.triggerActor = actor
       event.triggerState = this
+      event.triggerActor = actor
+      event.casterActor = caster
       EventHandler.call(event, this.updaters)
       return event
     }
@@ -2571,11 +2623,21 @@ class Equipment {
   /**
    * 调用装备事件
    * @param {string} type 装备事件类型
-   * @param {Actor} [actor] 事件触发角色
    * @returns {EventHandler|undefined}
    */
-  callEvent(type, actor = this.parent?.actor) {
+  callEvent(type) {
+    const actor = this.parent?.actor
     const commands = this.events[type]
+    switch (type) {
+      case 'equipmentadd':
+      case 'equipmentremove':
+      case 'equipmentgain':
+        EventManager.emit(type, null, {
+          triggerActor: actor,
+          triggerEquipment: this,
+        })
+        break
+    }
     if (commands) {
       const event = new EventHandler(commands)
       event.triggerActor = actor
@@ -2670,7 +2732,6 @@ class Item {
     this.events = data.events
     this.script = Script.create(this, data.scripts)
     this.parent = null
-    Item.latest = this
 
     if (savedData) {
       // 加载存档数据
@@ -2733,6 +2794,14 @@ class Item {
    */
   callEvent(type, actor = this.parent?.actor) {
     const commands = this.events[type]
+    switch (type) {
+      case 'itemgain':
+        EventManager.emit(type, null, {
+          triggerActor: actor,
+          triggerItem: this,
+        })
+        break
+    }
     if (commands) {
       const event = new EventHandler(commands)
       event.triggerActor = actor
@@ -2763,8 +2832,11 @@ class Item {
     }
   }
 
-  // 静态 - 最新创建物品
+  // 静态 - 最新获得物品
   static latest
+
+  // 静态 - 最新获得物品的增量
+  static increment = 0
 }
 
 // ******************************** 库存类 ********************************
@@ -3023,6 +3095,10 @@ class Inventory {
    */
   increaseMoney(money) {
     this.money += Math.max(money, 0)
+    Inventory.moneyIncrement = money
+    EventManager.emit('moneygain', null, {
+      triggerActor: this.actor,
+    })
   }
 
   /**
@@ -3043,8 +3119,11 @@ class Inventory {
     if (data && quantity > 0) {
       const item = new Item(data)
       // 插入到库存
+      Item.latest = item
+      Item.increment = quantity
       this.insert(item)
       item.increase(quantity)
+      item.callEvent('itemgain')
     }
   }
 
@@ -3057,8 +3136,10 @@ class Inventory {
     const item = this.get(id)
     // 如果存在该物品，则增加数量，否则创建物品
     if (item) {
-      item.increase(quantity)
       Item.latest = item
+      Item.increment = quantity
+      item.increase(quantity)
+      item.callEvent('itemgain')
     }
     else {
       this.createItems(id, quantity)
@@ -3118,6 +3199,7 @@ class Inventory {
     if (equipment.parent !== this) {
       equipment.remove()
       this.insert(equipment)
+      equipment.callEvent('equipmentgain')
     }
   }
 
@@ -3195,6 +3277,9 @@ class Inventory {
     while (list[i]?.order === i) {i++}
     this.pointer = i
   }
+
+  // 金钱增量
+  static moneyIncrement = 0
 
   // 引用库存延迟处理列表
   static references = []

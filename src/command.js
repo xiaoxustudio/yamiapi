@@ -2021,6 +2021,10 @@ Command.setNumber = function setNumber(IIFE) {
             return () => Party.members.length
           case 'actor-count':
             return () => Scene.binding?.actors.count(operand.teamId) ?? 0
+          case 'latest-item-increment':
+            return () => Item.increment
+          case 'latest-money-increment':
+            return () => Inventory.moneyIncrement
         }
     }
   }
@@ -3890,6 +3894,38 @@ Command.setAnimation = function ({element, properties}) {
             element[key] = value
             continue
         }
+      }
+    }
+    return true
+  }
+}
+
+/**
+ * 设置视频
+ * @param {Object} $
+ * @param {ElementGetter} $.element
+ * @param {Object[]} $.properties
+ * @returns {Function}
+ */
+Command.setVideo = function setVideo({element, properties}) {
+  const getElement = Command.compileElement(element)
+  for (const property of properties) {
+    switch (property.key) {
+      case 'playbackRate':
+        if (typeof property.value === 'object') {
+          property.value = Command.compileNumber(property.value, 0, 0, 4)
+        }
+        break
+    }
+  }
+  return () => {
+    const element = getElement()
+    if (element instanceof VideoElement) {
+      for (let {key, value} of properties) {
+        if (typeof value === 'function') {
+          value = value()
+        }
+        element[key] = value
       }
     }
     return true

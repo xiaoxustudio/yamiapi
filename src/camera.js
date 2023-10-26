@@ -161,8 +161,8 @@ const Camera = new class {
   /**
    * 设置摄像机缩放系数
    * @param {number} zoom 缩放系数[1-8]
-   * @param {string} easingId 过渡曲线ID
-   * @param {number} duration 持续时间(毫秒)
+   * @param {string} [easingId] 过渡曲线ID
+   * @param {number} [duration] 持续时间(毫秒)
    */
   setZoomFactor(zoom, easingId, duration) {
     const {updaters} = this
@@ -261,7 +261,7 @@ const Camera = new class {
     this.animationBottomT = this.animationBottom / tileHeight
 
     // 计算当前缩放率的光影纹理参数
-    const texture = GL.lightmap
+    const texture = GL.reflectedLightMap
     if (texture.scale !== zoom) {
       texture.scale = zoom
       const {ceil, min} = Math
@@ -300,7 +300,7 @@ const Camera = new class {
       target: this.target?.entityId ?? '',
       x: this.x,
       y: this.y,
-      zoom: this.zoom,
+      zoom: this.rawZoom,
     }
   }
 
@@ -314,7 +314,7 @@ const Camera = new class {
     await Scene.binding?.promise
     this.x = camera.x
     this.y = camera.y
-    this.zoom = camera.zoom
+    this.setZoomFactor(camera.zoom)
     // 获取摄像机跟随的全局角色或场景角色(如果有)
     const entityId = camera.target
     const target = EntityManager.get(entityId)

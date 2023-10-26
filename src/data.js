@@ -683,12 +683,10 @@ const Data = new class {
   saveGlobalData() {
     const data = {
       language: Local.language,
-      resolution: {
-        width: Stage.resolution.width,
-        height: Stage.resolution.height,
-        sceneScale: Scene.scale,
-        uiScale: UI.scale,
-      },
+      canvasWidth: Stage.resolution.width,
+      canvasHeight: Stage.resolution.height,
+      sceneScale: Scene.scale,
+      uiScale: UI.scale,
       variables: Variable.saveData(1),
     }
     let shell = Stats.shell
@@ -728,12 +726,10 @@ const Data = new class {
       const config = await this.config
       return {
         language: config.localization.default,
-        resolution: {
-          width: config.resolution.width,
-          height: config.resolution.height,
-          sceneScale: 1,
-          uiScale: 1,
-        },
+        canvasWidth: config.resolution.width,
+        canvasHeight: config.resolution.height,
+        sceneScale: config.resolution.sceneScale,
+        uiScale: config.resolution.uiScale,
         variables: {},
       }
     }
@@ -748,25 +744,46 @@ const Data = new class {
           const fsp = require('fs').promises
           const json = await fsp.readFile(path)
           this.globalData = JSON.parse(json)
-        } catch (error) {
-          this.globalData = await createDefaultData()
+        } catch (error) {}
+        break
+      case 'web':
+        this.globalData = await IDB.getItem('global.save')
+        break
+    }
+    const defaultData = await createDefaultData()
+    // 如果存在全局数据，检查并修补缺失的属性
+    // 否则使用默认全局数据
+    if (this.globalData) {
+      for (const key of Object.keys(defaultData)) {
+        if (this.globalData[key] === undefined) {
+          this.globalData[key] = defaultData[key]
         }
-        break
-      case 'web': {
-        const key = 'global.save'
-        this.globalData = await IDB.getItem(key) ?? await createDefaultData()
-        break
       }
+      // 以调试模式运行时重置部分数据
+      if (Stats.debug) {
+        for (const key of [
+          'language',
+          'canvasWidth',
+          'canvasHeight',
+          'sceneScale',
+          'uiScale'
+        ]) {
+          this.globalData[key] = defaultData[key]
+        }
+      }
+    } else {
+      this.globalData = defaultData
     }
   }
 
   // 加载配置文件
   async loadConfig() {
-    this.config = await File.get({
+    this.config = File.get({
       path: 'Data/config.json',
       type: 'json',
       sync: true,
     })
+    this.config = await this.config
   }
 }
 
@@ -780,10 +797,11 @@ const IDB = new class {
    * 打开数据库
    * @returns {Promise<IDBObjectStore>}
    */
-  open() {
+  async open() {
     if (!this.promise) {
       // localStorage数据容量有限，indexedDB可以存放大量数据
-      const dbName = 'yami-rpg:' + Data.config.gameId
+      const config = await Data.config
+      const dbName = 'yami-rpg:' + config.gameId
       const request = indexedDB.open(dbName)
       request.onupgradeneeded = event => {
         const db = event.target.result
@@ -795,10 +813,9 @@ const IDB = new class {
         }
       })
     }
-    return this.promise.then(db => {
-      const transaction = db.transaction(['game-data'], 'readwrite')
-      return transaction.objectStore('game-data')
-    })
+    const db = await this.promise
+    const transaction = db.transaction(['game-data'], 'readwrite')
+    return transaction.objectStore('game-data')
   }
 
   /**

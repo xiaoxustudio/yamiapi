@@ -36,7 +36,7 @@ namespace: {
     stencil: false,
     premultipliedAlpha: false,
     preserveDrawingBuffer: false,
-    desynchronized: false,
+    desynchronized: true,
   }
 
   // 优先使用WebGL2(Win10 DirectX11)
@@ -107,9 +107,6 @@ GL.initialize = function () {
   this.masking = false
   this.depthTest = false
 
-  // 设置光照对比度
-  this.contrast = 0
-
   // 创建环境光对象
   this.ambient = {red: -1, green: -1, blue: -1}
 
@@ -119,16 +116,25 @@ GL.initialize = function () {
   // 设置最大纹理数量
   this.maxTexUnits = 16
 
-  // 创建光影纹理(渲染场景光源)
-  this.lightmap = this.lightmap ?? new Texture({
+  // 创建反射光纹理
+  this.reflectedLightMap = this.reflectedLightMap ?? new Texture({
     format: this.RGB,
     magFilter: this.LINEAR,
     minFilter: this.LINEAR,
   })
-  this.lightmap.fbo = this.createTextureFBO(this.lightmap)
+  this.reflectedLightMap.fbo = this.createTextureFBO(this.reflectedLightMap)
   this.activeTexture(this.TEXTURE0 + this.maxTexUnits - 1)
-  this.bindTexture(this.TEXTURE_2D, this.lightmap.base.glTexture)
+  this.bindTexture(this.TEXTURE_2D, this.reflectedLightMap.base.glTexture)
   this.activeTexture(this.TEXTURE0)
+
+  // 创建直射光纹理
+  this.directLightMap = this.directLightMap ?? new Texture({
+    format: this.RGB,
+    magFilter: this.LINEAR,
+    minFilter: this.LINEAR,
+  })
+  this.directLightMap.base.protected = true
+  this.directLightMap.fbo = this.createTextureFBO(this.directLightMap)
 
   // 创建模板纹理(用来绘制文字)
   this.stencilTexture = this.stencilTexture ?? new Texture({format: this.ALPHA})
@@ -227,10 +233,9 @@ GL.initialize = function () {
 
 // WebGL上下文方法 - 恢复上下文
 GL.restore = function () {
-  const {contrast, ambient} = this
+  const {ambient} = this
   this.textureManager.restore()
   this.initialize()
-  this.setContrast(contrast)
   this.setAmbientLight(ambient)
   this.updateLightTexSize()
 }
@@ -291,7 +296,6 @@ GL.createImageProgram = function () {
     uniform     float       u_Flip;
     uniform     mat3        u_Matrix;
     uniform     vec3        u_Ambient;
-    uniform     float       u_Contrast;
     uniform     int         u_LightMode;
     uniform     vec2        u_LightCoord;
     uniform     vec4        u_LightTexSize;
@@ -321,11 +325,11 @@ GL.createImageProgram = function () {
           anchorCoord.x / u_LightTexSize.x + u_LightTexSize.z,
           anchorCoord.y / u_LightTexSize.y * u_Flip + u_LightTexSize.w
         );
-        return texture2D(u_LightSampler, lightCoord).rgb * u_Contrast;
+        return texture2D(u_LightSampler, lightCoord).rgb;
       }
       if (u_LightMode == 3) {
         // 光线采样：环境光
-        return u_Ambient * u_Contrast;
+        return u_Ambient;
       }
     }
 
@@ -348,7 +352,6 @@ GL.createImageProgram = function () {
     uniform     vec4        u_Color;
     uniform     vec4        u_Tint;
     uniform     vec4        u_Repeat;
-    uniform     float       u_Contrast;
     uniform     sampler2D   u_Sampler;
     uniform     sampler2D   u_MaskSampler;
     uniform     sampler2D   u_LightSampler;
@@ -356,7 +359,7 @@ GL.createImageProgram = function () {
     // 获取光照颜色系数(全局采样)
     vec3 getLightColor() {
       if (v_LightColor.z != -1.0) return v_LightColor;
-      return texture2D(u_LightSampler, v_LightColor.xy).rgb * u_Contrast;
+      return texture2D(u_LightSampler, v_LightColor.xy).rgb;
     }
 
     void main() {
@@ -400,7 +403,6 @@ GL.createImageProgram = function () {
   const u_Flip = this.getUniformLocation(program, 'u_Flip')
   const u_Matrix = this.getUniformLocation(program, 'u_Matrix')
   const u_Ambient = this.getUniformLocation(program, 'u_Ambient')
-  const u_Contrast = this.getUniformLocation(program, 'u_Contrast')
   const u_LightMode = this.getUniformLocation(program, 'u_LightMode')
   const u_LightCoord = this.getUniformLocation(program, 'u_LightCoord')
   const u_LightTexSize = this.getUniformLocation(program, 'u_LightTexSize')
@@ -468,7 +470,6 @@ GL.createImageProgram = function () {
   program.a_Opacity = a_Opacity
   program.u_Matrix = u_Matrix
   program.u_Ambient = u_Ambient
-  program.u_Contrast = u_Contrast
   program.u_LightMode = u_LightMode
   program.u_LightCoord = u_LightCoord
   program.u_LightTexSize = u_LightTexSize
@@ -492,7 +493,6 @@ GL.createTileProgram = function () {
     uniform     float       u_Flip;
     uniform     mat3        u_Matrix;
     uniform     vec3        u_Ambient;
-    uniform     float       u_Contrast;
     uniform     int         u_LightMode;
     uniform     vec4        u_LightTexSize;
     uniform     sampler2D   u_LightSampler;
@@ -516,7 +516,7 @@ GL.createTileProgram = function () {
       }
       if (u_LightMode == 2) {
         // 光线采样：环境光
-        return u_Ambient * u_Contrast;
+        return u_Ambient;
       }
     }
 
@@ -533,7 +533,6 @@ GL.createTileProgram = function () {
     varying     vec2        v_TexCoord;
     varying     vec3        v_LightColor;
     uniform     float       u_Alpha;
-    uniform     float       u_Contrast;
     uniform     sampler2D   u_Samplers[15];
     uniform     sampler2D   u_LightSampler;
 
@@ -550,7 +549,7 @@ GL.createTileProgram = function () {
     // 获取光照颜色系数(全局采样)
     vec3 getLightColor() {
       if (v_LightColor.z != -1.0) return v_LightColor;
-      return texture2D(u_LightSampler, v_LightColor.xy).rgb * u_Contrast;
+      return texture2D(u_LightSampler, v_LightColor.xy).rgb;
     }
 
     void main() {
@@ -570,7 +569,6 @@ GL.createTileProgram = function () {
   const u_Flip = this.getUniformLocation(program, 'u_Flip')
   const u_Matrix = this.getUniformLocation(program, 'u_Matrix')
   const u_Ambient = this.getUniformLocation(program, 'u_Ambient')
-  const u_Contrast = this.getUniformLocation(program, 'u_Contrast')
   const u_LightMode = this.getUniformLocation(program, 'u_LightMode')
   const u_LightTexSize = this.getUniformLocation(program, 'u_LightTexSize')
   // 设置光照采样器指向最后一个纹理
@@ -624,7 +622,6 @@ GL.createTileProgram = function () {
   program.a_TexIndex = a_TexIndex
   program.u_Matrix = u_Matrix
   program.u_Ambient = u_Ambient
-  program.u_Contrast = u_Contrast
   program.u_LightMode = u_LightMode
   program.u_LightTexSize = u_LightTexSize
   program.u_Samplers = u_Samplers
@@ -642,7 +639,6 @@ GL.createSpriteProgram = function () {
     attribute   vec2        a_LightCoord;
     uniform     float       u_Flip;
     uniform     mat3        u_Matrix;
-    uniform     float       u_Contrast;
     uniform     vec4        u_LightTexSize;
     uniform     sampler2D   u_LightSampler;
     varying     float       v_TexIndex;
@@ -667,7 +663,7 @@ GL.createSpriteProgram = function () {
       }
       // 参数Z分量是2 = 光线采样：锚点采样
       if (a_TexParam.z == 2.0) {
-        return texture2D(u_LightSampler, a_LightCoord).rgb * u_Contrast;
+        return texture2D(u_LightSampler, a_LightCoord).rgb;
       }
     }
 
@@ -690,7 +686,6 @@ GL.createSpriteProgram = function () {
     varying     vec2        v_TexCoord;
     varying     vec3        v_LightColor;
     uniform     float       u_Alpha;
-    uniform     float       u_Contrast;
     uniform     sampler2D   u_Samplers[15];
     uniform     sampler2D   u_LightSampler;
 
@@ -713,7 +708,7 @@ GL.createSpriteProgram = function () {
     // 获取光照颜色系数(全局采样)
     vec3 getLightColor() {
       if (v_LightColor.z != -1.0) return v_LightColor;
-      return texture2D(u_LightSampler, v_LightColor.xy).rgb * u_Contrast;
+      return texture2D(u_LightSampler, v_LightColor.xy).rgb;
     }
 
     void main() {
@@ -734,7 +729,6 @@ GL.createSpriteProgram = function () {
   const a_LightCoord = this.getAttribLocation(program, 'a_LightCoord')
   const u_Flip = this.getUniformLocation(program, 'u_Flip')
   const u_Matrix = this.getUniformLocation(program, 'u_Matrix')
-  const u_Contrast = this.getUniformLocation(program, 'u_Contrast')
   const u_LightTexSize = this.getUniformLocation(program, 'u_LightTexSize')
   // 设置光照采样器指向最后一个纹理
   this.uniform1i(this.getUniformLocation(program, 'u_LightSampler'), this.maxTexUnits - 1)
@@ -792,7 +786,6 @@ GL.createSpriteProgram = function () {
   program.a_Tint = a_Tint
   program.a_LightCoord = a_LightCoord
   program.u_Matrix = u_Matrix
-  program.u_Contrast = u_Contrast
   program.u_LightTexSize = u_LightTexSize
   program.u_Samplers = u_Samplers
   return program
@@ -808,7 +801,6 @@ GL.createParticleProgram = function () {
     uniform     float       u_Flip;
     uniform     mat3        u_Matrix;
     uniform     vec3        u_Ambient;
-    uniform     float       u_Contrast;
     uniform     int         u_LightMode;
     uniform     vec4        u_LightTexSize;
     uniform     sampler2D   u_LightSampler;
@@ -831,7 +823,7 @@ GL.createParticleProgram = function () {
       }
       if (u_LightMode == 2) {
         // 光线采样：环境光
-        return u_Ambient * u_Contrast;
+        return u_Ambient;
       }
     }
 
@@ -850,13 +842,12 @@ GL.createParticleProgram = function () {
     uniform     float       u_Alpha;
     uniform     int         u_Mode;
     uniform     vec4        u_Tint;
-    uniform     float       u_Contrast;
     uniform     sampler2D   u_Sampler;
     uniform     sampler2D   u_LightSampler;
 
     vec3 getLightColor() {
       if (v_LightColor.z != -1.0) return v_LightColor;
-      return texture2D(u_LightSampler, v_LightColor.xy).rgb * u_Contrast;
+      return texture2D(u_LightSampler, v_LightColor.xy).rgb;
     }
 
     void main() {
@@ -887,7 +878,6 @@ GL.createParticleProgram = function () {
   const a_Color = this.getAttribLocation(program, 'a_Color')
   const u_Matrix = this.getUniformLocation(program, 'u_Matrix')
   const u_Ambient = this.getUniformLocation(program, 'u_Ambient')
-  const u_Contrast = this.getUniformLocation(program, 'u_Contrast')
   const u_LightMode = this.getUniformLocation(program, 'u_LightMode')
   const u_LightTexSize = this.getUniformLocation(program, 'u_LightTexSize')
   this.uniform1i(this.getUniformLocation(program, 'u_LightSampler'), this.maxTexUnits - 1)
@@ -936,7 +926,6 @@ GL.createParticleProgram = function () {
   program.a_Color = a_Color
   program.u_Matrix = u_Matrix
   program.u_Ambient = u_Ambient
-  program.u_Contrast = u_Contrast
   program.u_LightMode = u_LightMode
   program.u_LightTexSize = u_LightTexSize
   program.u_Mode = u_Mode
@@ -1232,28 +1221,6 @@ GL.createBlendingUpdater = function () {
 }
 
 /**
- * WebGL上下文方法 - 设置光照对比度
- * @param {number} contrast 光照对比度[1-1.5]
- */
-GL.setContrast = function (contrast) {
-  if (this.contrast !== contrast) {
-    this.contrast = contrast
-    const program = this.program
-    // 更新以下GL程序的对比度变量
-    for (const program of [
-      this.imageProgram,
-      this.tileProgram,
-      this.spriteProgram,
-      this.particleProgram,
-    ]) {
-      this.useProgram(program)
-      this.uniform1f(program.u_Contrast, contrast)
-    }
-    this.useProgram(program)
-  }
-}
-
-/**
  * WebGL上下文方法 - 设置环境光: 红[0,255] 绿[0,255] 蓝[0,255]
  * @param {{red: number, green: number, blue: number}} ambient 环境光
  */
@@ -1283,29 +1250,31 @@ GL.setAmbientLight = function ({red, green, blue}) {
 }
 
 /** WebGL上下文方法 - 调整光影纹理 */
-GL.resizeLightmap = function () {
-  const {lightmap, width, height} = this
-  if (lightmap.innerWidth !== width ||
-    lightmap.innerHeight !== height) {
-    lightmap.innerWidth = width
-    lightmap.innerHeight = height
-    if (lightmap.paddingLeft === undefined) {
+GL.resizeLightMap = function () {
+  const texture = this.reflectedLightMap
+  const width = this.width
+  const height = this.height
+  if (texture.innerWidth !== width ||
+    texture.innerHeight !== height) {
+    texture.innerWidth = width
+    texture.innerHeight = height
+    if (texture.paddingLeft === undefined) {
       const {lightArea} = Data.config
       // 首次调用时计算光影纹理最大扩张值(4倍)
-      lightmap.paddingLeft = Math.min(lightArea.expansionLeft * 4, 1024)
-      lightmap.paddingTop = Math.min(lightArea.expansionTop * 4, 1024)
-      lightmap.paddingRight = Math.min(lightArea.expansionRight * 4, 1024)
-      lightmap.paddingBottom = Math.min(lightArea.expansionBottom * 4, 1024)
+      texture.paddingLeft = Math.min(lightArea.expansionLeft * 4, 1024)
+      texture.paddingTop = Math.min(lightArea.expansionTop * 4, 1024)
+      texture.paddingRight = Math.min(lightArea.expansionRight * 4, 1024)
+      texture.paddingBottom = Math.min(lightArea.expansionBottom * 4, 1024)
     }
-    const pl = lightmap.paddingLeft
-    const pt = lightmap.paddingTop
-    const pr = lightmap.paddingRight
-    const pb = lightmap.paddingBottom
+    const pl = texture.paddingLeft
+    const pt = texture.paddingTop
+    const pr = texture.paddingRight
+    const pb = texture.paddingBottom
     const tWidth = width + pl + pr
     const tHeight = height + pt + pb
     // 重置缩放率(将会重新计算纹理参数)
-    lightmap.scale = 0
-    lightmap.resize(tWidth, tHeight)
+    texture.scale = 0
+    texture.resize(tWidth, tHeight)
     this.bindTexture(this.TEXTURE_2D, null)
     this.updateLightTexSize()
   }
@@ -1313,7 +1282,7 @@ GL.resizeLightmap = function () {
 
 /** WebGL上下文方法 - 更新光照纹理大小 */
 GL.updateLightTexSize = function () {
-  const texture = this.lightmap
+  const texture = this.reflectedLightMap
   if (texture.width === 0) return
   const width = this.drawingBufferWidth
   const height = this.drawingBufferHeight
@@ -1491,9 +1460,10 @@ GL.resize = function (width, height) {
     this.height = height
     this.viewport(0, 0, width, height)
     this.maskTexture.resize(width, height)
+    this.directLightMap.resize(width, height)
   }
   // 调整光影纹理
-  this.resizeLightmap()
+  this.resizeLightMap()
 }
 
 namespace: {
@@ -1973,7 +1943,6 @@ class BaseTexture {
   static CALLBACK = Symbol('LOAD_CALLBACK')
 }
 
-
 // ******************************** 纹理类 ********************************
 
 class Texture {
@@ -1996,6 +1965,7 @@ class Texture {
 
     // 设置属性
     this.complete = true
+    this.destroyed = false
     this.base = GL.createNormalTexture(options)
     this.gl = GL
     this.x = 0
@@ -2151,7 +2121,8 @@ class Texture {
 
   /** 销毁纹理 */
   destroy() {
-    if (this.base) {
+    if (!this.destroyed) {
+      this.destroyed = true
       this.complete = false
       this.gl.textureManager.delete(this.base)
       this.base = null
@@ -2173,6 +2144,7 @@ class ImageTexture extends Texture {
     // 设置属性
     const texture = GL.createImageTexture(image, options)
     this.complete = false
+    this.destroyed = false
     this.base = texture
     this.gl = GL
     this.x = 0
@@ -2309,7 +2281,8 @@ class ImageTexture extends Texture {
 
   /** 销毁图像纹理 */
   destroy() {
-    if (this.base) {
+    if (!this.destroyed) {
+      this.destroyed = true
       this.complete = false
       this.base.refCount--
       this.base = null

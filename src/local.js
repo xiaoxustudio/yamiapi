@@ -29,10 +29,7 @@ const Local = new class {
   initialize() {
     this.createTextMap()
     this.compileTextContents()
-    this.setLanguage(Stats.debug
-    ? Data.config.localization.default
-    : Data.globalData.language
-    )
+    this.setLanguage(Data.globalData.language)
   }
 
   // 创建本地化映射表
@@ -86,7 +83,7 @@ const Local = new class {
         return slices.join('')
       }
     }
-    const languages = Data.config.localization.languages
+    const languages = Data.config.localization.languages.map(lang => lang.name)
     for (const {contents} of Object.values(this.textMap)) {
       for (const language of languages) {
         contents[language] = compile(contents[language])
@@ -95,39 +92,39 @@ const Local = new class {
   }
 
   // 设置语言
-  async setLanguage(language) {
+  setLanguage(language) {
     if (this.language !== language) {
       const languages = Data.config.localization.languages
       let active = language
       if (active === 'auto') {
         active = this.getLanguage()
       }
-      if (!languages.includes(active)) {
-        active = languages[0] ?? 'en'
-      }
-      if (languages.includes(active)) {
-        try {
-          this.active = active
-          this.language = language
-          this.updateAllTexts()
-          window.dispatchEvent(new window.Event('localize'))
-        } catch (error) {
-          console.error(error)
-        }
+      let settings = languages.find(lang => lang.name === active)
+      if (!settings) settings = languages[0] ?? {name: active, font: '', scale: 1}
+      try {
+        this.active = settings.name
+        this.language = language
+        this.updateAllTexts()
+        window.dispatchEvent(new window.Event('localize'))
+        Printer.setLanguageFont(settings.font)
+        Printer.setSizeScale(settings.scale)
+        Printer.setWordWrap(['zh-CN', 'zh-TW', 'ja', 'ko'].includes(active) ? 'break' : 'keep')
+      } catch (error) {
+        console.error(error)
       }
     }
   }
 
   // 获取语言
   getLanguage() {
-    const languages = Data.config.localization.languages
-    let language = languages[0] ?? 'en'
-    let matchedWeight = 0
+    const languages = Data.config.localization.languages.map(lang => lang.name)
     let nLanguage = navigator.language
     // 重映射本地语言
     if (this.langRemap[nLanguage]) {
       nLanguage = this.langRemap[nLanguage]
     }
+    let language = languages[0] ?? nLanguage
+    let matchedWeight = 0
     const sKeys = nLanguage.split('-')
     for (const key of languages) {
       const dKeys = key.split('-')
