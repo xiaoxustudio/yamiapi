@@ -6052,7 +6052,7 @@ class SceneSpriteRenderer {
           } else if (actor.animationManager.existParticles) {
             // 如果动画中存在粒子，更新粒子发射器的矩阵
             const {x: ax, y: ay} = convert2f(x, y)
-            animation.activate(ax, ay, 0, 0)
+            actor.animationManager.activate(ax, ay, 0, 0)
           }
         }
       } else if (a <= 2) {

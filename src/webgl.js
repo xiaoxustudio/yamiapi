@@ -36,7 +36,7 @@ namespace: {
     stencil: false,
     premultipliedAlpha: false,
     preserveDrawingBuffer: false,
-    desynchronized: true,
+    desynchronized: false,
   }
 
   // 优先使用WebGL2(Win10 DirectX11)
