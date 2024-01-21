@@ -1,7 +1,7 @@
 <!--
 
  * @Author: xuranXYS
- * @LastEditTime: 2024-01-20 22:40:47
+ * @LastEditTime: 2024-01-21 12:08:14
  * @GitHub: www.github.com/xiaoxustudio
  * @WebSite: www.xiaoxustudio.top
  * @Description: By xuranXYS
@@ -510,7 +510,6 @@ class CommandStack extends Array {
 我们知道了`CommandStack`，它的作用其实就是当我们执行调用事件的指令时，会将读取的指令存放到这个`CommandStack`里面  
 然后执行完成后，继续执行后续的指令，这样的操作可以避免创建多个EventHandler的实例，减少了内存的开销。
 
-
 ```js
   /**
    * 执行事件指令
@@ -572,6 +571,7 @@ class CommandStack extends Array {
   }
 
 ```
+
 它的`getTimer`方法，我们看一下，首先是判断this.time是否存在，如果存在则直接返回，那么我们看看不存在时候的代码  
 首先备份了一下当前的update方法  
 `tick`定义了一个匿名函数，用来减少剩余时间的，如果时间到了，就恢复我们刚刚备份的update，然后执行一下  
@@ -657,6 +657,7 @@ duration（setget）：持续时间
 `EventManager`会用到，会给它添加移除自身的事件（因为这个事件执行器已经完成了，就可以删了）  
 
 ok，继续讲剩下的分析完
+
 ```js
  // 继承事件上下文
   inheritEventContext(event) {
@@ -772,3 +773,368 @@ class Script {
 同样，先看属性和构造方法，没啥可看的，一个父级和一个实例组  
 其实亚哥这个部分的注释比较多，我就跳过一些注释很明白的方法，讲没多少注释的方法  
 
+```js
+
+  /**
+   * 添加脚本对象
+   * @param {Object} instance 脚本对象
+   */
+  add(instance) {
+    // 以脚本类名作为键进行注册
+    const name = instance.constructor.name
+    if (name !== '') this[name] = instance
+    // 如果实现了update方法，则添加到父级更新器列表
+    if (typeof instance.update === 'function') {
+      this.parent.updaters?.push(instance)
+    }
+    instance.onScriptAdd?.(this.parent)
+    this.instances.push(instance)
+  }
+
+  /**
+   * 移除脚本对象(未使用)
+   * @param {Object} instance 脚本对象
+   */
+  remove(instance) {
+    const name = instance.constructor.name
+    if (this[name] === instance) delete this[name]
+    if (typeof instance.update === 'function') {
+      this.parent.updaters?.remove(instance)
+    }
+    instance.onScriptRemove?.(this.parent)
+    this.instances.remove(instance)
+  }
+```
+
+添加和删除，也没啥好讲的，为什么有`update`要添加到父级更新管理器，因为只有父级更新管理器才会更新，Script类是本身没有更新功能  
+再往下看  
+
+```js
+
+  // 延迟加载函数参数开关
+  // 速度比调用闭包函数快一点
+  static deferredLoading = false
+  static deferredCount = 0
+  static deferredInstances = []
+  static deferredKeys = []
+  static deferredValues = []
+
+  /**
+   * 放入延迟获取的脚本参数
+   * 等待场景对象和UI元素创建完毕后再获取
+   * @param {Object} instance 脚本对象
+   * @param {string} key 
+   * @param {function} value 
+   */
+  static pushDeferredParameter(instance, key, value) {
+    Script.deferredInstances[Script.deferredCount] = instance
+    Script.deferredKeys[Script.deferredCount] = key
+    Script.deferredValues[Script.deferredCount] = value
+    Script.deferredCount++
+  }
+
+  /** 加载延迟参数到脚本对象中 */
+  static loadDeferredParameters() {
+    for (let i = 0; i < Script.deferredCount; i++) {
+      Script.deferredInstances[i][Script.deferredKeys[i]] = Script.deferredValues[i]()
+      Script.deferredInstances[i] = null
+      Script.deferredValues[i] = null
+    }
+    Script.deferredCount = 0
+    Script.deferredLoading = false
+  }
+```
+
+上面的是加载延迟脚本，因为场景/UI的创建是异步的，你要获取它里面的对象，你肯定要等待它加载/创建完成才可以获取到那个对象  
+所以这里对脚本进行了一个延迟  
+
+再往下看  
+
+```js
+  /**
+   * 创建脚本管理器(使用脚本数据)
+   * @param {Object} owner 脚本宿主对象
+   * @param {Object[]} data 脚本数据列表
+   * @returns {Script}
+   */
+  static create(owner, data) {
+    const manager = new Script(owner)
+    // 如果脚本列表不为空
+    if (data.length > 0) {
+      for (const wrap of data) {
+        // 如果脚本已禁用，跳过
+        if (wrap.enabled === false) continue
+        // 初始化以及重构参数列表(丢弃无效参数)
+        if (wrap.initialized === undefined) {
+          wrap.initialized = true
+          wrap.parameters = Script.compileParamList(wrap.id, wrap.parameters)
+        }
+        const {id, parameters} = wrap
+        const script = Data.scripts[id]
+        // 如果不存在脚本，发送警告
+        if (script === undefined) {
+          const meta = Data.manifest.guidMap[id]
+          const name = meta?.path ?? `#${id}`
+          console.error(new Error(`The script is missing: ${name}`), owner)
+          continue
+        }
+        // 创建脚本对象实例，并传递脚本参数
+        const instance = new script.constructor(owner)
+        const length = parameters.length
+        for (let i = 0; i < length; i += 2) {
+          const key = parameters[i]
+          let value = parameters[i + 1]
+          if (typeof value === 'function') {
+            if (Script.deferredLoading) {
+              // 如果值类型是函数，且开启了延时加载参数开关
+              Script.pushDeferredParameter(instance, key, value)
+              continue
+            }
+            value = value()
+          }
+          instance[key] = value // 放入自身
+        }
+        manager.add(instance)
+      }
+    }
+    return manager
+  }
+```
+
+这个是创建函数，最后返回的是Script对象，它会对脚本进行编译，将编译的参数列表放入自身里面  
+
+最后就是编译参数列表了
+```js
+
+  /**
+   * 编译脚本参数列表
+   * @param {string} id 脚本文件ID
+   * @param {Object[]} parameters 脚本参数数据列表
+   * @returns {Array} 编译后的脚本参数列表
+   */
+  static compileParamList(id, parameters) {
+    const script = Data.scripts[id]
+    // 如果不存在脚本，返回空列表
+    if (script === undefined) {
+      return Array.empty
+    }
+    const defParameters = script.parameters
+    const length = defParameters.length
+    // 如果不存在参数，返回空列表
+    if (length === 0) {
+      return Array.empty
+    }
+    // 创建扁平化的参数列表
+    const parameterList = new Array(length * 2)
+    for (let i = 0; i < length; i++) {
+      const defParameter = defParameters[i]
+      const {key, type} = defParameter
+      let value = parameters[key]
+      // 根据默认参数类型，对实参进行有效性检查
+      // 如果实参是无效的，则使用默认值
+      switch (type) {
+        case 'boolean':
+        case 'number':
+          if (typeof value !== type) {
+            value = defParameter.value
+          }
+          break
+        case 'variable-number':
+          if (typeof value !== 'number') {
+            if (value?.getter === 'variable') {
+              value = Command.compileVariable(value, Attribute.NUMBER_GET)
+            } else {
+              value = () => undefined
+            }
+          }
+          break
+        case 'option':
+          if (!defParameter.options.includes(value)) {
+            value = defParameter.value
+          }
+          break
+        case 'number[]':
+        case 'string[]':
+          if (Array.isArray(value)) {} else {
+            value = defParameter.value
+          }
+          break
+        case 'attribute':
+          value = Attribute.get(value)
+          break
+        case 'attribute-key':
+          value = Attribute.getKey(value)
+          break
+        case 'enum':
+          value = Enum.get(value)
+          break
+        case 'enum-value':
+          value = Enum.getValue(value)
+          break
+        case 'actor': {
+          const id = value
+          value = () => Scene.idMap[id]
+          break
+        }
+        case 'region': {
+          const id = value
+          value = () => Scene.idMap[id]
+          break
+        }
+        case 'light': {
+          const id = value
+          value = () => Scene.idMap[id]
+          break
+        }
+        case 'animation': {
+          const id = value
+          value = () => Scene.idMap[id]
+          break
+        }
+        case 'particle': {
+          const id = value
+          value = () => Scene.idMap[id]
+          break
+        }
+        case 'parallax': {
+          const id = value
+          value = () => Scene.idMap[id]
+          break
+        }
+        case 'tilemap': {
+          const id = value
+          value = () => Scene.idMap[id]
+          break
+        }
+        case 'element': {
+          const id = value
+          value = () => UI.idMap[id]
+          break
+        }
+        case 'keycode':
+          if (typeof value !== 'string') {
+            value = defParameter.value
+          }
+          break
+        case 'variable-getter':
+          if (value?.getter === 'variable') {
+            value = {
+              get: Command.compileVariable(value, Attribute.GET),
+              set: Command.compileVariable(value, Attribute.SAFE_SET),
+            }
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'actor-getter':
+          if (value?.getter === 'actor') {
+            value = Command.compileActor(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'skill-getter':
+          if (value?.getter === 'skill') {
+            value = Command.compileSkill(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'state-getter':
+          if (value?.getter === 'state') {
+            value = Command.compileState(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'equipment-getter':
+          if (value?.getter === 'equipment') {
+            value = Command.compileEquipment(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'item-getter':
+          if (value?.getter === 'item') {
+            value = Command.compileItem(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'element-getter':
+          if (value?.getter === 'element') {
+            value = Command.compileElement(value)
+          } else {
+            value = () => undefined
+          }
+          break
+        case 'position-getter':
+          if (value?.getter === 'position') {
+            const getPoint = Command.compilePosition(value)
+            value = () => {
+              const point = getPoint()
+              return point ? {x: point.x, y: point.y} : undefined
+            }
+          } else {
+            value = () => undefined
+          }
+          break
+        default:
+          if (typeof value !== 'string') {
+            value = defParameter.value
+          }
+          break
+      }
+      const pi = i * 2
+      parameterList[pi] = key
+      parameterList[pi + 1] = value
+    }
+    return parameterList
+  }
+
+  // 事件类型映射表(事件类型->脚本方法名称)
+  static eventTypeMap = {
+    update: 'update',
+    create: 'onCreate',
+    autorun: 'onStart',
+    collision: 'onCollision',
+    hittrigger: 'onHitTrigger',
+    hitactor: 'onHitActor',
+    destroy: 'onDestroy',
+    playerenter: 'onPlayerEnter',
+    playerleave: 'onPlayerLeave',
+    actorenter: 'onActorEnter',
+    actorleave: 'onActorLeave',
+    skillcast: 'onSkillCast',
+    skilladd: 'onSkillAdd',
+    skillremove: 'onSkillRemove',
+    stateadd: 'onStateAdd',
+    stateremove: 'onStateRemove',
+    equipmentadd: 'onEquipmentAdd',
+    equipmentremove: 'onEquipmentRemove',
+    itemuse: 'onItemUse',
+    keydown: 'onKeyDown',
+    keyup: 'onKeyUp',
+    mousedown: 'onMouseDown',
+    mousedownLB: 'onMouseDownLB',
+    mousedownRB: 'onMouseDownRB',
+    mouseup: 'onMouseUp',
+    mouseupLB: 'onMouseUpLB',
+    mouseupRB: 'onMouseUpRB',
+    mousemove: 'onMouseMove',
+    mouseenter: 'onMouseEnter',
+    mouseleave: 'onMouseLeave',
+    click: 'onClick',
+    doubleclick: 'onDoubleClick',
+    wheel: 'onWheel',
+    input: 'onInput',
+    focus: 'onFocus',
+    blur: 'onBlur',
+    destroy: 'onDestroy',
+  }
+}
+```
+
+编译参数列表，根据传入的对象编译对象对应的值，为什么用扁平化？因为扁平化可以提高执行效率  
+不用扁平化，我们就要使用循环嵌套循环来做了，这种肯定效率是最低的  
+以上就是event.js的分析。
